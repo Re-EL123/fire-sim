@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101820">
+  <title>Re-EL | Fire Response Simulation</title>
+  <style>
+    :root {
+      --bg: #101820;
+      --panel: rgba(12, 22, 30, .88);
+      --panel-border: rgba(255,255,255,.14);
+      --text: #f5f8fa;
+      --muted: #b7c5ce;
+      --accent: #55c7e8;
+      --accent-dark: #087ca0;
+      --good: #72e0a4;
+      --warn: #ffca70;
+      --danger: #ff765f;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button { font: inherit; cursor: pointer; border: 0; }
+    #scene { position: fixed; inset: 0; }
+    #scene canvas { display: block; width: 100%; height: 100%; }
+    .vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 38%, rgba(4,10,14,.4) 100%); }
+    .topbar { position: fixed; top: 18px; left: 20px; right: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; pointer-events: none; }
+    .brand, .top-actions { pointer-events: auto; }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 10px 14px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--panel); backdrop-filter: blur(12px); }
+    .logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #07151c; font-weight: 900; letter-spacing: -1px; background: linear-gradient(135deg, #82e4ff, #24a7d1); }
+    .brand-name { font-size: 13px; font-weight: 800; letter-spacing: .13em; }
+    .brand-sub { font-size: 10px; color: var(--muted); margin-top: 3px; letter-spacing: .12em; text-transform: uppercase; }
+    .top-actions { display: flex; gap: 8px; }
+    .small-btn { padding: 10px 13px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 11px; background: var(--panel); backdrop-filter: blur(12px); }
+    .small-btn:hover { border-color: var(--accent); }
+    .hud { position: fixed; top: 100px; left: 20px; width: min(310px, calc(100vw - 40px)); display: grid; gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; padding: 16px; backdrop-filter: blur(14px); box-shadow: 0 16px 40px rgba(0,0,0,.16); }
+    .eyebrow { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    h1, h2, p { margin-top: 0; }
+    .mission-title { font-size: 18px; margin: 8px 0 7px; letter-spacing: -.025em; }
+    .muted { color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .objective { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--panel-border); }
+    .step-num { flex: 0 0 25px; width: 25px; height: 25px; border-radius: 8px; display: grid; place-items: center; color: #07151c; background: var(--accent); font-size: 12px; font-weight: 900; }
+    .objective strong { display: block; font-size: 12px; margin: 2px 0 4px; }
+    .objective span { display: block; font-size: 11px; color: var(--muted); line-height: 1.45; }
+    .meter-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 9px; }
+    .meter-head strong { color: var(--text); }
+    .meter { height: 7px; border-radius: 20px; background: rgba(255,255,255,.12); overflow: hidden; }
+    .meter-fill { height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffca70, #ff765f); transition: width .25s ease; }
+    .status-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 100px; background: rgba(255,202,112,.12); color: var(--warn); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+    .bottom-center { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 30px)); display: grid; gap: 12px; justify-items: center; }
+    .prompt { max-width: 100%; text-align: center; padding: 11px 16px; border: 1px solid var(--panel-border); border-radius: 12px; background: rgba(8,16,22,.84); backdrop-filter: blur(12px); font-size: 12px; color: var(--text); }
+    .key { display: inline-grid; place-items: center; min-width: 23px; height: 22px; margin: 0 3px; padding: 0 6px; border: 1px solid rgba(255,255,255,.25); border-bottom-width: 2px; border-radius: 6px; color: var(--accent); font-size: 10px; font-weight: 800; }
+    .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; }
+    .control-chip { background: rgba(8,16,22,.75); border: 1px solid rgba(255,255,255,.12); padding: 7px 10px; border-radius: 9px; font-size: 10px; color: var(--muted); }
+    .control-chip b { color: var(--text); margin-right: 4px; }
+    .crosshair { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 17px; height: 17px; pointer-events: none; opacity: .8; }
+    .crosshair:before, .crosshair:after { content: ""; position: absolute; background: rgba(255,255,255,.8); border-radius: 2px; }
+    .crosshair:before { width: 1px; height: 17px; left: 8px; }
+    .crosshair:after { width: 17px; height: 1px; top: 8px; }
+    .modal-wrap { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 20px; background: rgba(3,8,12,.56); backdrop-filter: blur(8px); }
+    .modal { width: min(550px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 22px; padding: clamp(22px, 4vw, 36px); background: linear-gradient(145deg, rgba(18,32,43,.98), rgba(8,17,24,.98)); box-shadow: 0 30px 100px rgba(0,0,0,.45); }
+    .modal h1 { font-size: clamp(28px, 5vw, 42px); line-height: 1.03; letter-spacing: -.05em; margin: 13px 0 12px; }
+    .modal p { color: var(--muted); line-height: 1.65; font-size: 13px; }
+    .modal-label { display: inline-flex; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 8px; background: rgba(85,199,232,.12); color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .modal-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 23px; }
+    .primary { padding: 13px 17px; border-radius: 11px; background: var(--accent); color: #06151c; font-weight: 850; font-size: 12px; }
+    .primary:hover { background: #83e2fa; }
+    .secondary { padding: 13px 17px; border-radius: 11px; background: rgba(255,255,255,.07); color: var(--text); border: 1px solid var(--panel-border); font-weight: 700; font-size: 12px; }
+    .disclaimer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--panel-border); color: #9fb0bb; font-size: 10px; line-height: 1.55; }
+    .hidden { display: none !important; }
+    .toast { position: fixed; top: 82px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,16,22,.92); border: 1px solid var(--panel-border); border-radius: 11px; padding: 11px 15px; font-size: 12px; max-width: calc(100vw - 30px); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+    .result-score { font-size: 42px; letter-spacing: -.05em; font-weight: 900; color: var(--good); margin: 5px 0 10px; }
+    @media (max-width: 620px) {
+      .topbar { top: 10px; left: 10px; right: 10px; }
+      .brand { padding: 8px 10px; }
+      .brand-name { font-size: 11px; }
+      .brand-sub { font-size: 8px; }
+      .logo { width: 29px; height: 29px; }
+      .small-btn { padding: 9px 10px; font-size: 11px; }
+      .hud { top: 78px; left: 10px; width: min(260px, calc(100vw - 20px)); gap: 8px; }
+      .card { padding: 12px; border-radius: 13px; }
+      .mission-title { font-size: 15px; }
+      .muted { font-size: 11px; }
+      .bottom-center { bottom: 12px; }
+      .control-chip { font-size: 9px; padding: 6px 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="scene" aria-label="Interactive construction site simulation"></div>
+  <div class="vignette"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">R</div>
+      <div>
+        <div class="brand-name">RE-EL SIMULATIONS</div>
+        <div class="brand-sub">Interactive training concept</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="small-btn" id="audioBtn" title="Toggle sound">Sound: Off</button>
+      <button class="small-btn" id="restartBtn">↻ Restart</button>
+    </div>
+  </header>
+
+  <aside class="hud hidden" id="hud">
+    <section class="card">
+      <div class="eyebrow">Live exercise · 01</div>
+      <h2 class="mission-title">Construction-Site Fire Response</h2>
+      <div class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Incident active</span></div>
+      <div class="objective">
+        <div class="step-num" id="stepNum">1</div>
+        <div>
+          <strong id="objectiveTitle">Orient yourself</strong>
+          <span id="objectiveText">Look around the site and locate the incident.</span>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="meter-head"><span>Simulated fire intensity</span><strong id="intensityText">100%</strong></div>
+      <div class="meter"><div class="meter-fill" id="intensityBar"></div></div>
+      <div class="meter-head" style="margin-top:13px;margin-bottom:0"><span>Discharge supply</span><strong id="supplyText">100%</strong></div>
+      <div class="meter" style="margin-top:8px"><div id="supplyBar" class="meter-fill" style="width:100%;background:linear-gradient(90deg,#55c7e8,#72e0a4)"></div></div>
+    </section>
+  </aside>
+
+  <div class="crosshair hidden" id="crosshair"></div>
+  <div class="bottom-center hidden" id="bottomUI">
+    <div class="prompt" id="prompt">Move around the site and inspect the scene.</div>
+    <div class="controls">
+      <div class="control-chip"><b>W A S D</b> Move</div>
+      <div class="control-chip"><b>Mouse</b> Look</div>
+      <div class="control-chip"><b>E</b> Interact / pick up</div>
+      <div class="control-chip"><b>Hold click</b> Discharge</div>
+      <div class="control-chip"><b>Esc</b> Release mouse</div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <div class="modal-wrap" id="welcomeModal">
+    <div class="modal">
+      <div class="modal-label"><span class="dot"></span> Prototype preview</div>
+      <h1>Respond with<br>confidence.</h1>
+      <p>Explore a construction-site scenario, locate the extinguisher and interact with a simulated fire. This is an early visual prototype showing the intended direction for the Re-EL firefighting training experience.</p>
+      <p><strong style="color:#f5f8fa">Desktop controls:</strong> WASD to move, mouse to look, E to collect the extinguisher, and hold the left mouse button to simulate discharge after collecting it.</p>
+      <div class="modal-actions">
+        <button class="primary" id="startBtn">Enter simulation →</button>
+        <button class="secondary" id="guidedBtn">Start guided demo</button>
+      </div>
+      <div class="disclaimer">Training concept only. Fire behaviour, equipment operation and assessment criteria are illustrative and must be reviewed by a qualified fire-safety professional before use as actual training.</div>
+    </div>
+  </div>
+
+  <div class="modal-wrap hidden" id="resultModal">
+    <div class="modal">
+      <div class="modal-label"><span class="dot"></span> Scenario result</div>
+      <h1 id="resultHeading">Scenario complete.</h1>
+      <div class="result-score" id="resultScore">PASS</div>
+      <p id="resultCopy">You completed the simulated exercise.</p>
+      <div class="modal-actions">
+        <button class="primary" id="againBtn">Run scenario again</button>
+        <button class="secondary" id="closeResultBtn">Return to site</button>
+      </div>
+      <div class="disclaimer">This result reflects actions in this prototype only. It is not a qualification, certification or proof of real-world firefighting competence.</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js';
+
+    const container = document.getElementById('scene');
+    const ui = {
+      hud: document.getElementById('hud'),
+      crosshair: document.getElementById('crosshair'),
+      bottomUI: document.getElementById('bottomUI'),
+      prompt: document.getElementById('prompt'),
+      objectiveTitle: document.getElementById('objectiveTitle'),
+      objectiveText: document.getElementById('objectiveText'),
+      stepNum: document.getElementById('stepNum'),
+      intensityText: document.getElementById('intensityText'),
+      intensityBar: document.getElementById('intensityBar'),
+      supplyText: document.getElementById('supplyText'),
+      supplyBar: document.getElementById('supplyBar'),
+      statusText: document.getElementById('statusText'),
+      statusPill: document.getElementById('statusPill'),
+      toast: document.getElementById('toast'),
+      welcome: document.getElementById('welcomeModal'),
+      result: document.getElementById('resultModal')
+    };
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x9ab7c5);
+    scene.fog = new THREE.Fog(0x9ab7c5, 22, 65);
+
+    const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 120);
+    camera.position.set(0, 1.7, 9);
+    camera.rotation.order = 'YXZ';
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xd8efff, 0x51483b, 2.0));
+    const sun = new THREE.DirectionalLight(0xffedcf, 2.6);
+    sun.position.set(-9, 16, 7);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    scene.add(sun);
+
+    const mat = (color, roughness = 0.85, metalness = 0) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    const materials = {
+      concrete: mat(0x858c8d),
+      concreteLight: mat(0xb7b7ad),
+      dark: mat(0x29333a),
+      steel: mat(0x687780, 0.45, 0.5),
+      wood: mat(0x9a7048),
+      yellow: mat(0xf0b82d),
+      white: mat(0xe8e8e2),
+      red: mat(0xc62828),
+      black: mat(0x202629),
+      blue: mat(0x1f5269),
+      orange: mat(0xef7d32),
+      green: mat(0x4e8666)
+    };
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), mat(0x777f7d));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.05;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Subtle floor grid to give the scene scale without making it visually busy.
+    const grid = new THREE.GridHelper(60, 60, 0x9ca4a0, 0x858e8a);
+    grid.position.y = -0.035;
+    grid.material.transparent = true;
+    grid.material.opacity = 0.22;
+    scene.add(grid);
+
+    function box(name, x, y, z, sx, sy, sz, material, cast = true) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), material);
+      mesh.name = name;
+      mesh.position.set(x, y, z);
+      mesh.castShadow = cast;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      return mesh;
+    }
+    function cylinder(name, x, y, z, rt, rb, h, material, segments = 12) {
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, segments), material);
+      mesh.name = name;
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      return mesh;
+    }
+
+    // Construction-site structure.
+    box('rear wall', 0, 2.2, -11, 22, 4.4, 0.35, materials.concreteLight);
+    for (let x = -9; x <= 9; x += 6) {
+      box('concrete column', x, 2.2, -10.6, 0.65, 4.4, 0.7, materials.concrete);
+      box('column cap', x, 4.35, -10.6, 0.95, 0.18, 0.9, materials.concreteLight);
+    }
+    // Open-frame steel structure.
+    for (const x of [-7, -2, 3, 8]) {
+      cylinder('steel upright', x, 2.2, -5.6, 0.09, 0.09, 4.4, materials.steel, 10);
+      box('steel crossbeam', x + 2.5, 4.25, -5.6, 5.1, 0.12, 0.12, materials.steel);
+    }
+    box('raised platform', -5.5, 0.28, -7.3, 4.2, 0.35, 2.0, materials.wood);
+    for (let i = 0; i < 6; i++) {
+      box('platform plank', -7.2 + i * 0.68, 0.48, -7.3, 0.62, 0.08, 1.9, materials.wood);
+    }
+    // Pallets and materials.
+    box('pallet base', 5.8, 0.18, -3.3, 2.5, 0.28, 1.7, materials.wood);
+    for (let i = 0; i < 5; i++) {
+      box('stacked board', 5.8, 0.42 + i * 0.15, -3.3, 2.3, 0.12, 1.45, i % 2 ? materials.wood : materials.concreteLight);
+    }
+    // Scaffolding-like frames to the left.
+    for (const x of [-9.0, -6.4]) {
+      cylinder('scaffold upright', x, 1.55, 0.0, 0.055, 0.055, 3.1, materials.steel, 8);
+      cylinder('scaffold upright', x, 1.55, -2.1, 0.055, 0.055, 3.1, materials.steel, 8);
+    }
+    for (const y of [0.7, 1.8, 2.9]) {
+      cylinder('scaffold crossbar', -7.7, y, 0, 0.045, 0.045, 2.65, materials.yellow, 8).rotation.z = Math.PI / 2;
+      cylinder('scaffold rear crossbar', -7.7, y, -2.1, 0.045, 0.045, 2.65, materials.steel, 8).rotation.z = Math.PI / 2;
+    }
+    // Safety barriers.
+    for (let x = -3.8; x <= 3.8; x += 1.9) {
+      box('barrier foot', x, 0.12, 2.3, 0.55, 0.22, 0.45, materials.dark);
+      box('barrier panel', x, 0.65, 2.3, 1.65, 0.75, 0.09, materials.yellow);
+      for (let stripe = 0; stripe < 3; stripe++) {
+        const band = box('barrier stripe', x - 0.45 + stripe * 0.45, 0.65, 2.245, 0.12, 0.76, 0.025, materials.black, false);
+        band.rotation.z = 0.28;
+      }
+    }
+    // A site container at the far right.
+    box('site container', 11, 1.6, -5.8, 3.8, 3.2, 5.8, materials.blue);
+    for (let z = -8.2; z <= -3.5; z += 0.45) {
+      box('container rib', 9.08, 1.6, z, 0.06, 3.0, 0.08, materials.steel, false);
+    }
+    box('container door', 8.95, 1.5, -5.8, 0.08, 2.7, 1.7, materials.dark);
+    // Small tool boxes.
+    box('toolbox', -3.6, 0.35, -3.6, 1.2, 0.7, 0.7, materials.orange);
+    box('toolbox lid', -3.6, 0.72, -3.6, 1.25, 0.08, 0.74, materials.dark);
+
+    // Simple safety sign.
+    box('sign post', -1.9, 1.1, -4.8, 0.08, 2.2, 0.08, materials.steel);
+    box('sign board', -1.9, 2.0, -4.8, 0.95, 0.65, 0.08, materials.white);
+    const signCanvas = document.createElement('canvas');
+    signCanvas.width = 256; signCanvas.height = 180;
+    const signCtx = signCanvas.getContext('2d');
+    signCtx.fillStyle = '#f4f5ef'; signCtx.fillRect(0,0,256,180);
+    signCtx.fillStyle = '#bf2929'; signCtx.fillRect(12,12,232,156);
+    signCtx.fillStyle = '#fff'; signCtx.font = 'bold 27px Arial'; signCtx.textAlign = 'center';
+    signCtx.fillText('FIRE',128,72); signCtx.fillText('POINT',128,108);
+    const signTexture = new THREE.CanvasTexture(signCanvas);
+    const signFace = new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.62), new THREE.MeshBasicMaterial({ map: signTexture }));
+    signFace.position.set(-1.9, 2.0, -4.745);
+    scene.add(signFace);
+
+    // Fire source: dark material stack and animated flame meshes.
+    const fireBase = new THREE.Group();
+    fireBase.position.set(2.2, 0, -7.0);
+    scene.add(fireBase);
+    const burnCrate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.85, 1.2), materials.dark);
+    burnCrate.position.y = 0.43;
+    burnCrate.castShadow = true;
+    fireBase.add(burnCrate);
+    const charredTop = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.1, 1.05), mat(0x3b302a));
+    charredTop.position.set(0, 0.9, 0);
+    fireBase.add(charredTop);
+
+    const flameMaterials = [
+      new THREE.MeshBasicMaterial({ color: 0xff3b16, transparent: true, opacity: 0.92, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xff8a18, transparent: true, opacity: 0.88, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.82, side: THREE.DoubleSide })
+    ];
+    const flames = [];
+    for (let i = 0; i < 13; i++) {
+      const h = 0.8 + Math.random() * 1.2;
+      const r = 0.22 + Math.random() * 0.26;
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7, 1, true), flameMaterials[i % 3]);
+      flame.position.set((Math.random() - .5) * 1.1, 1.0 + h * .48, (Math.random() - .5) * .85);
+      flame.rotation.z = (Math.random() - .5) * .35;
+      fireBase.add(flame);
+      flames.push({ mesh: flame, h, phase: Math.random() * 6.28, baseScale: 0.8 + Math.random() * 0.45 });
+    }
+    const fireLight = new THREE.PointLight(0xff641d, 5, 9, 2);
+    fireLight.position.set(2.2, 2.0, -7);
+    scene.add(fireLight);
+
+    // Smoke particles, kept deliberately lightweight.
+    const smokeMat = new THREE.MeshBasicMaterial({ color: 0x454b4e, transparent: true, opacity: 0.25, depthWrite: false });
+    const smoke = [];
+    for (let i = 0; i < 18; i++) {
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.22 + Math.random() * 0.25, 7, 6), smokeMat.clone());
+      mesh.position.set(2.2 + (Math.random() - .5) * .8, 1.8 + Math.random() * 2.0, -7 + (Math.random() - .5) * .7);
+      mesh.userData = { phase: Math.random() * 10, size: 0.7 + Math.random() * 1.3 };
+      scene.add(mesh);
+      smoke.push(mesh);
+    }
+
+    // Extinguisher and its mounting station.
+    const extinguisher = new THREE.Group();
+    extinguisher.name = 'extinguisher';
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.22, 0.95, 16), materials.red);
+    body.position.y = 0.55;
+    body.castShadow = true;
+    extinguisher.add(body);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.16, 12), materials.steel);
+    neck.position.y = 1.1; extinguisher.add(neck);
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 7, 16, Math.PI), materials.black);
+    handle.rotation.x = Math.PI / 2; handle.position.set(0, 1.23, 0); extinguisher.add(handle);
+    const hose = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.13, 1.0, 0), new THREE.Vector3(0.28, 0.95, 0.03), new THREE.Vector3(0.32, 0.65, 0.08), new THREE.Vector3(0.42, 0.48, 0.08)
+    ]), 12, 0.035, 7, false), materials.black);
+    extinguisher.add(hose);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 0.28, 10), materials.black);
+    nozzle.rotation.z = Math.PI / 2; nozzle.position.set(0.42, 0.48, 0.08); extinguisher.add(nozzle);
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.38), new THREE.MeshBasicMaterial({ color: 0xf5f3e9 }));
+    label.position.set(0, 0.58, 0.205); extinguisher.add(label);
+    const pin = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.018, 6, 14), materials.yellow);
+    pin.position.set(0, 1.23, 0.05); extinguisher.add(pin);
+    extinguisher.position.set(-1.8, 0, -3.2);
+    scene.add(extinguisher);
+    // Wall stand / mounting marker.
+    box('extinguisher station backing', -1.8, 1.0, -3.55, 0.7, 1.8, 0.12, materials.white);
+    box('station top label', -1.8, 1.88, -3.55, 0.8, 0.22, 0.14, materials.red);
+    const stationLabelCanvas = document.createElement('canvas');
+    stationLabelCanvas.width = 256; stationLabelCanvas.height = 96;
+    const sl = stationLabelCanvas.getContext('2d');
+    sl.fillStyle = '#c62828'; sl.fillRect(0,0,256,96);
+    sl.fillStyle = '#fff'; sl.font = 'bold 30px Arial'; sl.textAlign = 'center'; sl.fillText('EXTINGUISHER',128,59);
+    const stationTex = new THREE.CanvasTexture(stationLabelCanvas);
+    const stationFace = new THREE.Mesh(new THREE.PlaneGeometry(0.78,0.2), new THREE.MeshBasicMaterial({map:stationTex}));
+    stationFace.position.set(-1.8,1.88,-3.475); scene.add(stationFace);
+
+    // Aiming target indicator around the fire.
+    const targetRing = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.035, 8, 40), new THREE.MeshBasicMaterial({ color: 0x55c7e8, transparent: true, opacity: 0.8 }));
+    targetRing.rotation.x = Math.PI / 2;
+    targetRing.position.set(2.2, 0.08, -7.0);
+    scene.add(targetRing);
+
+    // Simple discharge particles emitted from a nozzle point toward the fire.
+    const sprayGroup = new THREE.Group();
+    scene.add(sprayGroup);
+    const sprayParticles = [];
+    const sprayMaterial = new THREE.MeshBasicMaterial({ color: 0xd9f8ff, transparent: true, opacity: 0.75 });
+    for (let i = 0; i < 55; i++) {
+      const p = new THREE.Mesh(new THREE.SphereGeometry(0.035 + Math.random() * 0.025, 5, 5), sprayMaterial.clone());
+      p.visible = false;
+      sprayGroup.add(p);
+      sprayParticles.push(p);
+    }
+
+    // Camera / movement.
+    const keys = new Set();
+    let yaw = 0, pitch = 0;
+    let pointerLocked = false;
+    let active = false;
+    let guided = true;
+    let pickedUp = false;
+    let pinRemoved = false;
+    let spraying = false;
+    let fireIntensity = 100;
+    let supply = 100;
+    let scenarioState = 'orientation';
+    let startedAt = 0;
+    let mistakes = 0;
+    let retries = 0;
+    let soundOn = false;
+    let audioContext = null;
+    let lastToast = 0;
+    const clock = new THREE.Clock();
+    const raycaster = new THREE.Raycaster();
+    const move = new THREE.Vector3();
+    const cameraForward = new THREE.Vector3();
+    const cameraRight = new THREE.Vector3();
+    const worldUp = new THREE.Vector3(0,1,0);
+
+    function showToast(message) {
+      ui.toast.textContent = message;
+      ui.toast.classList.remove('hidden');
+      clearTimeout(lastToast);
+      lastToast = setTimeout(() => ui.toast.classList.add('hidden'), 2300);
+    }
+    function setObjective(n, title, text) {
+      ui.stepNum.textContent = n;
+      ui.objectiveTitle.textContent = title;
+      ui.objectiveText.textContent = text;
+    }
+    function setStatus(text, color = 'warn') {
+      ui.statusText.textContent = text;
+      const colors = { warn: 'var(--warn)', good: 'var(--good)', danger: 'var(--danger)' };
+      ui.statusPill.style.color = colors[color] || colors.warn;
+      ui.statusPill.style.background = color === 'good' ? 'rgba(114,224,164,.12)' : color === 'danger' ? 'rgba(255,118,95,.12)' : 'rgba(255,202,112,.12)';
+    }
+    function updateMeters() {
+      ui.intensityText.textContent = `${Math.max(0, Math.round(fireIntensity))}%`;
+      ui.intensityBar.style.width = `${Math.max(0, fireIntensity)}%`;
+      ui.supplyText.textContent = `${Math.max(0, Math.round(supply))}%`;
+      ui.supplyBar.style.width = `${Math.max(0, supply)}%`;
+    }
+    function showTraining() {
+      ui.hud.classList.remove('hidden');
+      ui.crosshair.classList.remove('hidden');
+      ui.bottomUI.classList.remove('hidden');
+    }
+    function setPrompt(text) { ui.prompt.innerHTML = text; }
+
+    function startSimulation(useGuided = true) {
+      guided = useGuided;
+      active = true;
+      startedAt = performance.now();
+      ui.welcome.classList.add('hidden');
+      ui.result.classList.add('hidden');
+      showTraining();
+      scenarioState = 'orientation';
+      pickedUp = false; pinRemoved = false; spraying = false;
+      fireIntensity = 100; supply = 100; mistakes = 0;
+      extinguisher.position.set(-1.8, 0, -3.2);
+      extinguisher.rotation.set(0,0,0);
+      extinguisher.visible = true;
+      pin.visible = true;
+      targetRing.visible = true;
+      fireBase.visible = true;
+      fireLight.intensity = 5;
+      flames.forEach(f => f.mesh.visible = true);
+      smoke.forEach(s => { s.visible = true; s.material.opacity = 0.25; });
+      sprayParticles.forEach(p => p.visible = false);
+      camera.position.set(0, 1.7, 8.5);
+      yaw = 0; pitch = 0;
+      camera.rotation.set(0,0,0);
+      setStatus('Incident active');
+      setObjective(1, 'Orient yourself', 'Look around the construction site and locate the simulated fire.');
+      setPrompt('Explore the site. Approach the extinguisher station when you are ready.');
+      updateMeters();
+    }
+
+    function resetScenario() {
+      retries++;
+      if (document.pointerLockElement) document.exitPointerLock();
+      startSimulation(guided);
+      showToast('Scenario reset. Start a new attempt.');
+    }
+
+    function completeScenario(success) {
+      if (!active) return;
+      active = false;
+      spraying = false;
+      setStatus(success ? 'Scenario complete' : 'Scenario incomplete', success ? 'good' : 'danger');
+      const elapsed = Math.max(0, Math.round((performance.now() - startedAt) / 1000));
+      const score = success ? Math.max(60, 100 - mistakes * 10 - retries * 5) : Math.max(0, 40 - mistakes * 5);
+      document.getElementById('resultHeading').textContent = success ? 'Simulated fire extinguished.' : 'Try the scenario again.';
+      document.getElementById('resultScore').textContent = success ? `${score}%` : 'RETRY';
+      document.getElementById('resultScore').style.color = success ? 'var(--good)' : 'var(--warn)';
+      document.getElementById('resultCopy').textContent = success
+        ? `You completed this prototype exercise in ${elapsed} seconds. Recorded interaction errors: ${mistakes}. This is a demonstration score, not a validated competency assessment.`
+        : `The simulated fire was not extinguished. Review the prompts and try again. Recorded interaction errors: ${mistakes}.`;
+      ui.result.classList.remove('hidden');
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+
+    function removePin() {
+      if (!pickedUp) {
+        mistakes++;
+        showToast('Collect the extinguisher first.');
+        return;
+      }
+      if (pinRemoved) return;
+      pinRemoved = true;
+      pin.visible = false;
+      scenarioState = 'aim';
+      setObjective(3, 'Aim at the target', 'Direct the nozzle toward the simulated fire before discharging.');
+      setPrompt('Pin removed. Face the fire and place the crosshair on the target area.');
+      showToast('Pin interaction completed.');
+    }
+
+    function collectExtinguisher() {
+      if (pickedUp) {
+        if (!pinRemoved) removePin();
+        return;
+      }
+      const distance = camera.position.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
+      if (distance > 4.1) {
+        showToast('Move closer to the extinguisher station.');
+        return;
+      }
+      pickedUp = true;
+      extinguisher.visible = false;
+      scenarioState = 'pin';
+      setObjective(2, 'Prepare the extinguisher', 'Collect the extinguisher and complete the guided equipment interaction.');
+      setPrompt('Extinguisher collected. Press <span class="key">E</span> again to simulate removing the safety pin.');
+      showToast('Extinguisher collected.');
+    }
+
+    function fireDistance() {
+      return camera.position.distanceTo(new THREE.Vector3(2.2, 1.2, -7));
+    }
+    function getAimDirection() {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      return dir.normalize();
+    }
+    function isAimingAtFire() {
+      const dir = getAimDirection();
+      const toFire = new THREE.Vector3(2.2, 1.1, -7).sub(camera.position).normalize();
+      return dir.dot(toFire) > 0.94 && fireDistance() < 11;
+    }
+
+    function beginSpray() {
+      if (!active || !pickedUp) return;
+      if (!pinRemoved) {
+        mistakes++;
+        showToast('Complete the pin interaction first.');
+        return;
+      }
+      if (fireIntensity <= 0) return;
+      if (!isAimingAtFire()) {
+        mistakes++;
+        showToast('Aim toward the simulated fire target.');
+        return;
+      }
+      spraying = true;
+      scenarioState = 'discharge';
+      setObjective(4, 'Apply the simulated discharge', 'Keep the nozzle directed at the target area while the effect is active.');
+      setPrompt('Discharging. Keep aiming at the target to reduce simulated fire intensity.');
+    }
+    function endSpray() {
+      spraying = false;
+      sprayParticles.forEach(p => p.visible = false);
+      if (active && fireIntensity > 0 && pinRemoved) {
+        scenarioState = 'aim';
+        setPrompt('Adjust your aim toward the fire and hold the left mouse button to continue.');
+      }
+    }
+
+    function playBeep(freq = 620, duration = 0.08) {
+      if (!soundOn) return;
+      try {
+        audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.frequency.value = freq;
+        oscillator.type = 'sine';
+        gain.gain.setValueAtTime(0.045, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+        oscillator.connect(gain); gain.connect(audioContext.destination);
+        oscillator.start(); oscillator.stop(audioContext.currentTime + duration);
+      } catch (e) { /* sound is optional */ }
+    }
+
+    function onKeyDown(e) {
+      if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+      keys.add(e.code);
+      if (!active || e.repeat) return;
+      if (e.code === 'KeyE') {
+        if (!pickedUp) collectExtinguisher();
+        else if (!pinRemoved) removePin();
+        else showToast('Aim at the fire and hold the left mouse button to discharge.');
+      }
+      if (e.code === 'KeyR') resetScenario();
+      if (e.code === 'Escape') {
+        if (document.pointerLockElement) document.exitPointerLock();
+      }
+    }
+    function onKeyUp(e) { keys.delete(e.code); }
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    renderer.domElement.addEventListener('click', () => {
+      if (active && !pointerLocked && !ui.result.classList.contains('hidden')) return;
+      if (active && !pointerLocked) renderer.domElement.requestPointerLock?.();
+    });
+    document.addEventListener('pointerlockchange', () => { pointerLocked = document.pointerLockElement === renderer.domElement; });
+    document.addEventListener('mousemove', e => {
+      if (!pointerLocked || !active) return;
+      yaw -= e.movementX * 0.0021;
+      pitch -= e.movementY * 0.0018;
+      pitch = Math.max(-1.15, Math.min(1.15, pitch));
+      camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    });
+    renderer.domElement.addEventListener('mousedown', e => {
+      if (e.button === 0) beginSpray();
+    });
+    window.addEventListener('mouseup', e => { if (e.button === 0) endSpray(); });
+    window.addEventListener('blur', () => { keys.clear(); endSpray(); });
+
+    document.getElementById('startBtn').addEventListener('click', () => startSimulation(false));
+    document.getElementById('guidedBtn').addEventListener('click', () => startSimulation(true));
+    document.getElementById('restartBtn').addEventListener('click', resetScenario);
+    document.getElementById('againBtn').addEventListener('click', resetScenario);
+    document.getElementById('closeResultBtn').addEventListener('click', () => {
+      ui.result.classList.add('hidden');
+      active = true;
+      showToast('Simulation resumed.');
+    });
+    document.getElementById('audioBtn').addEventListener('click', () => {
+      soundOn = !soundOn;
+      document.getElementById('audioBtn').textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
+      playBeep(700, 0.06);
+    });
+
+    function updateMovement(dt) {
+      if (!active) return;
+      move.set(0,0,0);
+      camera.getWorldDirection(cameraForward);
+      cameraForward.y = 0; cameraForward.normalize();
+      cameraRight.crossVectors(cameraForward, worldUp).normalize();
+      if (keys.has('KeyW') || keys.has('ArrowUp')) move.add(cameraForward);
+      if (keys.has('KeyS') || keys.has('ArrowDown')) move.sub(cameraForward);
+      if (keys.has('KeyD') || keys.has('ArrowRight')) move.add(cameraRight);
+      if (keys.has('KeyA') || keys.has('ArrowLeft')) move.sub(cameraRight);
+      if (move.lengthSq() > 0) {
+        move.normalize().multiplyScalar(3.0 * dt);
+        camera.position.add(move);
+        camera.position.x = THREE.MathUtils.clamp(camera.position.x, -13, 13);
+        camera.position.z = THREE.MathUtils.clamp(camera.position.z, -10, 11);
+        camera.position.y = 1.7;
+      }
+    }
+
+    function updateExtinguisher() {
+      if (!pickedUp || !active) return;
+      // A lightweight desktop proxy for holding the extinguisher in front of the camera.
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+      extinguisher.position.copy(camera.position).add(forward.multiplyScalar(0.8)).add(right.multiplyScalar(0.38));
+      extinguisher.position.y -= 0.52;
+      extinguisher.quaternion.copy(camera.quaternion);
+      extinguisher.rotateX(-0.18);
+      extinguisher.rotateZ(-0.12);
+      extinguisher.visible = true;
+    }
+
+    function updateSpray(dt, t) {
+      if (!spraying || !active || !pickedUp || !pinRemoved) {
+        sprayParticles.forEach(p => p.visible = false);
+        return;
+      }
+      const nozzleWorld = new THREE.Vector3();
+      extinguisher.localToWorld(nozzleWorld.set(0.42, 0.48, 0.08));
+      const firePos = new THREE.Vector3(2.2, 1.1, -7);
+      const direction = firePos.sub(nozzleWorld).normalize();
+      sprayParticles.forEach((p, i) => {
+        const spread = 0.16 + (i % 5) * 0.025;
+        const travel = ((t * 4 + i * 0.17) % 1);
+        p.position.copy(nozzleWorld).addScaledVector(direction, travel * 5.8);
+        p.position.x += Math.sin(t * 8 + i) * spread * travel;
+        p.position.y += Math.cos(t * 7 + i * 1.7) * spread * travel;
+        p.position.z += Math.sin(t * 6 + i * 0.7) * spread * travel;
+        p.visible = true;
+      });
+      fireIntensity = Math.max(0, fireIntensity - dt * 17);
+      supply = Math.max(0, supply - dt * 13);
+      updateMeters();
+      fireLight.intensity = 0.5 + fireIntensity * 0.045;
+      flames.forEach((f, i) => {
+        const scale = Math.max(0.03, fireIntensity / 100);
+        f.mesh.scale.set(scale, scale, scale);
+      });
+      smoke.forEach(s => { s.material.opacity = 0.05 + fireIntensity / 500; });
+      if (fireIntensity <= 0) {
+        fireIntensity = 0; updateMeters();
+        spraying = false;
+        sprayParticles.forEach(p => p.visible = false);
+        targetRing.visible = false;
+        setStatus('Scenario complete', 'good');
+        setObjective(5, 'Exercise complete', 'The simulated fire has reached the configured extinguished state.');
+        setPrompt('Simulation complete. Review your result.');
+        playBeep(880, 0.18);
+        completeScenario(true);
+      } else if (supply <= 0) {
+        spraying = false;
+        completeScenario(false);
+      }
+    }
+
+    function animateEnvironment(t) {
+      flames.forEach(f => {
+        if (!f.mesh.visible) return;
+        f.mesh.scale.x = f.baseScale * (0.86 + Math.sin(t * 9 + f.phase) * 0.12);
+        f.mesh.scale.z = f.baseScale * (0.86 + Math.cos(t * 8 + f.phase) * 0.12);
+        f.mesh.rotation.z = Math.sin(t * 3 + f.phase) * 0.12;
+        f.mesh.position.y = 1.0 + f.h * 0.48 + Math.sin(t * 7 + f.phase) * 0.09;
+      });
+      fireLight.intensity = (fireIntensity / 100) * (4.5 + Math.sin(t * 11) * 0.6);
+      smoke.forEach((s, i) => {
+        s.position.y += 0.004 + (i % 3) * 0.001;
+        s.position.x += Math.sin(t + s.userData.phase) * 0.002;
+        if (s.position.y > 5.0) {
+          s.position.y = 1.5;
+          s.position.x = 2.2 + (Math.random() - .5) * 0.8;
+          s.position.z = -7 + (Math.random() - .5) * 0.7;
+        }
+        const fade = Math.max(0, fireIntensity / 100);
+        s.scale.setScalar(s.userData.size * fade);
+        s.material.opacity = 0.16 * fade;
+      });
+      targetRing.material.opacity = 0.55 + Math.sin(t * 3) * 0.2;
+    }
+
+    function updateGuidance() {
+      if (!active) return;
+      const distExt = camera.position.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
+      if (!pickedUp) {
+        setPrompt(distExt < 4.1
+          ? 'Press <span class="key">E</span> to collect the extinguisher.'
+          : 'Locate the extinguisher station. Move with <span class="key">W A S D</span> and look with your mouse.');
+      } else if (!pinRemoved) {
+        setPrompt('Press <span class="key">E</span> to simulate the pin interaction.');
+      } else if (fireIntensity > 0 && !spraying) {
+        setPrompt(isAimingAtFire()
+          ? 'Target aligned. Hold the left mouse button to simulate discharge.'
+          : 'Face the fire and align the crosshair with the target area.');
+      }
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.04);
+      const t = clock.elapsedTime;
+      updateMovement(dt);
+      updateExtinguisher();
+      updateSpray(dt, t);
+      animateEnvironment(t);
+      updateGuidance();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+    });
+
+    // Keep the UI responsive when the user returns from a modal.
+    setObjective(1, 'Orient yourself', 'Look around the site and locate the incident.');
+  </script>
+</body>
+</html>
