@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101820">
   <title>Re-EL | Fire Response Simulation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+  } }
+  </script>
   <style>
     :root {
       --bg: #101820;
@@ -44,7 +53,7 @@
     .objective strong { display: block; font-size: 12px; margin: 2px 0 4px; }
     .objective span { display: block; font-size: 11px; color: var(--muted); line-height: 1.45; }
     .meter-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 9px; }
-    .meter-head strong { color: var(--text); }
+    .meter-head strong { color: var(--text); font-family: "JetBrains Mono", ui-monospace, monospace; }
     .meter { height: 7px; border-radius: 20px; background: rgba(255,255,255,.12); overflow: hidden; }
     .meter-fill { height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffca70, #ff765f); transition: width .25s ease; }
     .status-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 100px; background: rgba(255,202,112,.12); color: var(--warn); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
@@ -71,7 +80,7 @@
     .disclaimer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--panel-border); color: #9fb0bb; font-size: 10px; line-height: 1.55; }
     .hidden { display: none !important; }
     .toast { position: fixed; top: 82px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,16,22,.92); border: 1px solid var(--panel-border); border-radius: 11px; padding: 11px 15px; font-size: 12px; max-width: calc(100vw - 30px); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
-    .result-score { font-size: 42px; letter-spacing: -.05em; font-weight: 900; color: var(--good); margin: 5px 0 10px; }
+    .result-score { font-size: 42px; letter-spacing: -.05em; font-weight: 900; color: var(--good); margin: 5px 0 10px; font-family: "JetBrains Mono", ui-monospace, monospace; }
     @media (max-width: 620px) {
       .topbar { top: 10px; left: 10px; right: 10px; }
       .brand { padding: 8px 10px; }
@@ -146,7 +155,7 @@
       <div class="modal-label"><span class="dot"></span> Prototype preview</div>
       <h1>Respond with<br>confidence.</h1>
       <p>Explore a construction-site scenario, locate the extinguisher and interact with a simulated fire. This is an early visual prototype showing the intended direction for the Re-EL firefighting training experience.</p>
-      <p><strong style="color:#f5f8fa">Desktop controls:</strong> WASD to move, mouse to look, E to collect the extinguisher, and hold the left mouse button to simulate discharge after collecting it.</p>
+      <p><strong style="color:#f5f8fa">Desktop controls:</strong> WASD to move, mouse to look, E to collect the extinguisher, and hold the left mouse button to simulate discharge after collecting it. Optionally press E at the red call point first to raise the alarm, and keep a safe distance (3–5 m) from the heat.</p>
       <div class="modal-actions">
         <button class="primary" id="startBtn">Enter simulation →</button>
         <button class="secondary" id="guidedBtn">Start guided demo</button>
@@ -171,6 +180,11 @@
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
     const container = document.getElementById('scene');
     const ui = {
@@ -520,13 +534,13 @@
       spraying = false;
       setStatus(success ? 'Scenario complete' : 'Scenario incomplete', success ? 'good' : 'danger');
       const elapsed = Math.max(0, Math.round((performance.now() - startedAt) / 1000));
-      const score = success ? Math.max(60, 100 - mistakes * 10 - retries * 5) : Math.max(0, 40 - mistakes * 5);
+      const score = success ? Math.max(50, Math.max(60, 100 - mistakes * 10 - retries * 5) - enhance.penalty()) : Math.max(0, 40 - mistakes * 5);
       document.getElementById('resultHeading').textContent = success ? 'Simulated fire extinguished.' : 'Try the scenario again.';
       document.getElementById('resultScore').textContent = success ? `${score}%` : 'RETRY';
       document.getElementById('resultScore').style.color = success ? 'var(--good)' : 'var(--warn)';
       document.getElementById('resultCopy').textContent = success
-        ? `You completed this prototype exercise in ${elapsed} seconds. Recorded interaction errors: ${mistakes}. This is a demonstration score, not a validated competency assessment.`
-        : `The simulated fire was not extinguished. Review the prompts and try again. Recorded interaction errors: ${mistakes}.`;
+        ? `You completed this prototype exercise in ${elapsed} seconds. Recorded interaction errors: ${mistakes}. Alarm raised: ${enhance.alarmOn ? 'yes' : 'no'}; peak heat exposure: ${Math.round(enhance.peakHeat)}%. This is a demonstration score, not a validated competency assessment.`
+        : `The simulated fire was not extinguished. Review the prompts and try again. Recorded interaction errors: ${mistakes}. Peak heat exposure: ${Math.round(enhance.peakHeat)}%.`;
       ui.result.classList.remove('hidden');
       if (document.pointerLockElement) document.exitPointerLock();
     }
@@ -722,7 +736,7 @@
         p.position.z += Math.sin(t * 6 + i * 0.7) * spread * travel;
         p.visible = true;
       });
-      fireIntensity = Math.max(0, fireIntensity - dt * 17);
+      fireIntensity = Math.max(0, fireIntensity - dt * 17 * enhance.efficiency());
       supply = Math.max(0, supply - dt * 13);
       updateMeters();
       fireLight.intensity = 0.5 + fireIntensity * 0.045;
@@ -787,6 +801,326 @@
       }
     }
 
+    // ===================== RE-EL ENHANCEMENT LAYER =====================
+    // Procedural PBR detail, post-processing, particle fire, props, alarm/evacuation,
+    // heat-exposure logic, procedural audio and GSAP UI motion. Core flow above is unchanged.
+    const enhance = (() => {
+      const rnd = (a, b) => a + Math.random() * (b - a);
+      const SRGB = THREE.SRGBColorSpace;
+      const M = (c, r = 0.6, m = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+
+      function grain(base, rep, streak, contrast) {
+        const c = document.createElement('canvas'); c.width = c.height = 256;
+        const g = c.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, 256, 256);
+        for (let i = 0; i < 5200; i++) {
+          const v = (128 + rnd(-contrast, contrast)) | 0;
+          g.fillStyle = `rgba(${v},${v},${v},${rnd(0.05, 0.25)})`;
+          if (streak) g.fillRect(rnd(0, 256), rnd(0, 256), 1.2, rnd(8, 60));
+          else g.fillRect(rnd(0, 256), rnd(0, 256), rnd(1, 3), rnd(1, 3));
+        }
+        const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(rep, rep); t.colorSpace = SRGB; t.anisotropy = 4; return t;
+      }
+      function radialTex(stops) {
+        const c = document.createElement('canvas'); c.width = c.height = 128;
+        const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+        stops.forEach(([o, col]) => gr.addColorStop(o, col));
+        g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+        const t = new THREE.CanvasTexture(c); t.colorSpace = SRGB; return t;
+      }
+      function signMesh(text, bg, fg, w, h) {
+        const c = document.createElement('canvas'); c.width = 256; c.height = Math.round(256 * h / w);
+        const g = c.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, c.width, c.height);
+        g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(8, 8, c.width - 16, c.height - 16);
+        g.fillStyle = fg; g.font = 'bold 34px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        const lines = text.split('\n');
+        lines.forEach((ln, i) => g.fillText(ln, 128, c.height / 2 + (i - (lines.length - 1) / 2) * 40));
+        const t = new THREE.CanvasTexture(c); t.colorSpace = SRGB;
+        return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide }));
+      }
+
+      // --- Surface detail: grain / wood streaks / bump on existing materials
+      [materials.concrete, materials.concreteLight].forEach(m => { m.map = grain('#e8e8e8', 1, false, 50); m.bumpMap = m.map; m.bumpScale = 0.6; m.needsUpdate = true; });
+      materials.wood.map = grain('#eeeeee', 1, true, 55); materials.wood.bumpMap = materials.wood.map; materials.wood.bumpScale = 0.8; materials.wood.needsUpdate = true;
+      ground.material.map = grain('#eeeeee', 34, false, 45); ground.material.bumpMap = ground.material.map; ground.material.bumpScale = 0.8; ground.material.needsUpdate = true;
+
+      // --- Image-based lighting, wider/sharper shadows, sky dome
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.45;
+      sun.shadow.mapSize.set(2048, 2048);
+      Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 60 });
+      sun.shadow.camera.updateProjectionMatrix(); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03;
+      const skyC = document.createElement('canvas'); skyC.width = 2; skyC.height = 256;
+      const sg = skyC.getContext('2d'), gr = sg.createLinearGradient(0, 0, 0, 256);
+      gr.addColorStop(0, '#4f86a8'); gr.addColorStop(0.55, '#9ab7c5'); gr.addColorStop(1, '#d6dcd4');
+      sg.fillStyle = gr; sg.fillRect(0, 0, 2, 256);
+      const skyTex = new THREE.CanvasTexture(skyC); skyTex.colorSpace = SRGB;
+      scene.add(new THREE.Mesh(new THREE.SphereGeometry(95, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false })));
+
+      // --- Props
+      const props = new THREE.Group(); scene.add(props);
+      function add(obj, x, y, z, ry = 0) {
+        obj.position.set(x, y, z); obj.rotation.y = ry;
+        obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        props.add(obj); return obj;
+      }
+      const coneMat = M(0xff6a1a, 0.5), stripeMat = M(0xf2f2ee, 0.5), baseMat = M(0x222222);
+      [[-5, 5], [-1.5, 5.4], [2, 5.4], [5.5, 4.6], [8, 2]].forEach(([x, z]) => {
+        const g = new THREE.Group();
+        const c = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.6, 16), coneMat); c.position.y = 0.3;
+        const s = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.12, 0.1, 16), stripeMat); s.position.y = 0.31;
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.4), baseMat); b.position.y = 0.02;
+        g.add(c, s, b); add(g, x, 0, z);
+      });
+      const drumMat = M(0x2f6f9f, 0.35, 0.6), ringMat = M(0x1c3f5a, 0.4, 0.7);
+      [[4.4, -8.6], [5.2, -8.9], [4.8, -8.0]].forEach(([x, z]) => {
+        const g = new THREE.Group();
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.9, 20), drumMat); d.position.y = 0.45; g.add(d);
+        [0.2, 0.7].forEach(y => { const r = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.015, 6, 20), ringMat); r.rotation.x = Math.PI / 2; r.position.y = y; g.add(r); });
+        add(g, x, 0, z);
+      });
+      const hatMat = M(0xf5c518, 0.4);
+      function hardHat() {
+        const g = new THREE.Group();
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), hatMat);
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.018, 16), hatMat); brim.position.y = 0.005;
+        g.add(dome, brim); return g;
+      }
+      add(hardHat(), -3.6, 0.77, -3.6, 0.6); add(hardHat(), 5.4, 0.98, -3.3, 2.1);
+      [-10, 10].forEach(x => {
+        const g = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 5, 8), materials.steel); pole.position.y = 2.5;
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.35), new THREE.MeshStandardMaterial({ color: 0x333333, emissive: 0xfff2cc, emissiveIntensity: 1.8 })); head.position.set(0, 5.05, 0.15);
+        g.add(pole, head); add(g, x, 0, 5);
+      });
+      const crane = new THREE.Group();
+      const mast = new THREE.Mesh(new THREE.BoxGeometry(0.5, 22, 0.5), materials.yellow); mast.position.y = 11;
+      const jib = new THREE.Mesh(new THREE.BoxGeometry(15, 0.4, 0.5), materials.yellow); jib.position.set(3, 21.5, 0);
+      const cw = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1), materials.concrete); cw.position.set(-5, 21, 0);
+      crane.add(mast, jib, cw); add(crane, -14, 0, -15);
+      const assembly = signMesh('ASSEMBLY\nPOINT', '#1f7a4d', '#ffffff', 1.3, 0.9); assembly.position.set(0, 2.1, 0);
+      const apost = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.1, 8), materials.steel); apost.position.y = 1.05;
+      const ag = new THREE.Group(); ag.add(assembly, apost); add(ag, 9.5, 0, 9.6, Math.PI);
+
+      // --- Manual call point + beacon (optional alarm step)
+      const callPt = new THREE.Vector3(-0.55, 1.3, -3.4);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.6, 0.1), materials.white); post.position.set(-0.55, 0.8, -3.5); scene.add(post);
+      const cpBox = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.1), M(0xd32f2f, 0.4)); cpBox.position.copy(callPt); cpBox.position.z = -3.43; scene.add(cpBox);
+      const cpLabel = signMesh('ALARM', '#d32f2f', '#ffffff', 0.34, 0.14); cpLabel.position.set(-0.55, 1.52, -3.42); scene.add(cpLabel);
+      const beaconMat = new THREE.MeshStandardMaterial({ color: 0xff2a1a, emissive: 0xff2a1a, emissiveIntensity: 0.2 });
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), beaconMat); beacon.position.set(-0.55, 1.68, -3.5); scene.add(beacon);
+      const callLight = new THREE.PointLight(0xff2a1a, 0, 9, 2); callLight.position.copy(beacon.position); scene.add(callLight);
+
+      // --- Site workers who evacuate to the assembly point when the alarm is raised
+      const vest = M(0xff9f1c, 0.7), skin = M(0xc8956d, 0.8), pants = M(0x2d3a4a, 0.9);
+      const workers = [[-4.2, -1.2, 8.8, 7.6], [6.8, -1.6, 10.2, 6.6], [0.2, -9.0, 9.4, 8.8]].map(([x, z, dx, dz], i) => {
+        const g = new THREE.Group();
+        const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.5, 6, 12), vest); torso.position.y = 1.15;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 12), skin); head.position.y = 1.78;
+        const hat = hardHat(); hat.position.y = 1.8;
+        const legGeo = new THREE.BoxGeometry(0.15, 0.78, 0.17); legGeo.translate(0, -0.39, 0);
+        const L = new THREE.Mesh(legGeo, pants); L.position.set(-0.1, 0.8, 0);
+        const R = new THREE.Mesh(legGeo, pants); R.position.set(0.1, 0.8, 0);
+        g.add(torso, head, hat, L, R); add(g, x, 0, z, rnd(0, 6));
+        const dest = new THREE.Vector3(dx, 0, dz), home = new THREE.Vector3(x, 0, z);
+        return { g, torso, L, R, dest, home, i, reset() { g.position.copy(home); L.rotation.x = R.rotation.x = 0; } };
+      });
+
+      // --- Particle systems (sprites): fire, smoke, steam, embers
+      const fireTex = radialTex([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,200,90,.9)'], [0.6, 'rgba(255,90,20,.4)'], [1, 'rgba(255,40,0,0)']]);
+      const smokeTex = radialTex([[0, 'rgba(255,255,255,.55)'], [0.6, 'rgba(255,255,255,.25)'], [1, 'rgba(255,255,255,0)']]);
+      function pool(n, tex, blending) {
+        return Array.from({ length: n }, () => {
+          const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending, opacity: 0 }));
+          s.visible = false; scene.add(s);
+          return { s, age: 0, max: 1, alive: false, v: new THREE.Vector3(), size: 1 };
+        });
+      }
+      const fireP = pool(90, fireTex, THREE.AdditiveBlending), smokeP = pool(36, smokeTex, THREE.NormalBlending);
+      const steamP = pool(30, smokeTex, THREE.NormalBlending), emberP = pool(34, fireTex, THREE.AdditiveBlending);
+      function emit(p, x, y, z, vx, vy, vz, max, size) {
+        const q = p.find(o => !o.alive); if (!q) return;
+        q.alive = true; q.age = 0; q.max = max; q.size = size; q.v.set(vx, vy, vz); q.s.position.set(x, y, z); q.s.visible = true;
+      }
+      function step(p, dt, fn) {
+        p.forEach((q, i) => {
+          if (!q.alive) return;
+          q.age += dt; const k = q.age / q.max;
+          if (k >= 1) { q.alive = false; q.s.visible = false; return; }
+          q.s.position.addScaledVector(q.v, dt); fn(q, k, i);
+        });
+      }
+      const acc = { f: 0, s: 0, st: 0, e: 0 };
+      const glow = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: fireTex, color: 0xff6a20, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+      glow.rotation.x = -Math.PI / 2; glow.position.set(2.2, 0.03, -7); scene.add(glow);
+
+      // --- Post-processing (bloom for fire, beacon, lamps)
+      const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+      const composer = new EffectComposer(renderer, rt);
+      composer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
+      composer.setSize(innerWidth, innerHeight);
+      composer.addPass(new RenderPass(scene, camera));
+      composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 1.0));
+      composer.addPass(new OutputPass());
+
+      // --- HUD additions
+      const heatCard = document.createElement('section'); heatCard.className = 'card';
+      heatCard.innerHTML = '<div class="meter-head"><span>Heat exposure</span><strong id="heatText">0%</strong></div><div class="meter"><div class="meter-fill" id="heatBar" style="width:0%"></div></div><div class="meter-head" style="margin:13px 0 0"><span>Alarm</span><strong id="alarmText">Not raised</strong></div>';
+      ui.hud.appendChild(heatCard);
+      const heatText = heatCard.querySelector('#heatText'), heatBar = heatCard.querySelector('#heatBar'), alarmText = heatCard.querySelector('#alarmText');
+      const heatVg = document.createElement('div');
+      heatVg.style.cssText = 'position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 35%,rgba(255,60,20,.55) 100%);opacity:0;transition:opacity .2s';
+      document.body.appendChild(heatVg);
+
+      // --- State
+      let alarmOn = false, heat = 0, peakHeat = 0, warned = false, lastStart = -1, bob = 0, eng = null;
+
+      function raiseAlarm() {
+        alarmOn = true; alarmText.textContent = 'ACTIVE'; alarmText.style.color = 'var(--danger)';
+        showToast('Alarm raised. Site is evacuating to the assembly point.'); playBeep(520, 0.2);
+      }
+      window.addEventListener('keydown', e => {
+        if (e.code === 'KeyE' && active && !e.repeat && !alarmOn && !pickedUp && camera.position.distanceTo(callPt) < 2.2) {
+          raiseAlarm(); e.stopImmediatePropagation();
+        }
+      }, true);
+
+      function efficiency() {
+        const d = fireDistance();
+        let e = d < 1.6 ? 0.35 : d <= 5.5 ? 1 : Math.max(0.4, 1 - (d - 5.5) * 0.15);
+        if (!isAimingAtFire()) e *= 0.12;
+        return e;
+      }
+
+      // --- Procedural audio (only when Sound is on)
+      function initAudio() {
+        const ctx = audioContext, len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        const chain = (type, freq, q) => {
+          const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true;
+          const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+          const g = ctx.createGain(); g.gain.value = 0; s.connect(f); f.connect(g); g.connect(ctx.destination); s.start(); return g;
+        };
+        const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 620;
+        const og = ctx.createGain(); og.gain.value = 0; osc.connect(og); og.connect(ctx.destination); osc.start();
+        eng = { rumble: chain('lowpass', 380, 0.7), crackle: chain('bandpass', 2600, 1.4), hiss: chain('highpass', 3500, 0.5), osc, og };
+      }
+      function updateAudio(I, t) {
+        if (soundOn && audioContext) {
+          if (!eng) initAudio();
+          if (audioContext.state === 'suspended') audioContext.resume();
+          const T = audioContext.currentTime;
+          eng.rumble.gain.setTargetAtTime(0.10 * I, T, 0.1);
+          eng.crackle.gain.setTargetAtTime(Math.random() < 0.35 ? 0.09 * I : 0.01 * I, T, 0.02);
+          eng.hiss.gain.setTargetAtTime(spraying ? 0.1 : 0, T, 0.08);
+          eng.osc.frequency.setTargetAtTime(Math.sin(t * 4) > 0 ? 820 : 620, T, 0.01);
+          eng.og.gain.setTargetAtTime(alarmOn && active ? 0.03 : 0, T, 0.05);
+        } else if (eng) {
+          const T = audioContext.currentTime;
+          ['rumble', 'crackle', 'hiss', 'og'].forEach(k => eng[k].gain.setTargetAtTime(0, T, 0.05));
+        }
+      }
+
+      function update(dt, t) {
+        if (startedAt !== lastStart) {
+          lastStart = startedAt; alarmOn = false; heat = 0; peakHeat = 0; warned = false;
+          workers.forEach(w => w.reset()); beaconMat.emissiveIntensity = 0.2; callLight.intensity = 0;
+          alarmText.textContent = 'Not raised'; alarmText.style.color = '';
+        }
+        const I = fireIntensity / 100;
+
+        // Fire re-flash: the fire slowly regrows if you stop discharging before it is out.
+        if (active && pinRemoved && !spraying && fireIntensity > 0 && fireIntensity < 100) {
+          fireIntensity = Math.min(100, fireIntensity + dt * 1.8); updateMeters();
+        }
+        flames.forEach(f => { f.mesh.scale.y = Math.max(0.03, I); f.mesh.scale.x *= Math.max(0.05, I); f.mesh.scale.z *= Math.max(0.05, I); });
+
+        // Radiant heat exposure: stand too close and you accumulate heat.
+        const d = Math.hypot(camera.position.x - 2.2, camera.position.z + 7);
+        if (active && I > 0.12) {
+          const rate = d < 1.5 ? 40 : d < 2.6 ? 20 : d < 3.6 ? (3.6 - d) * 20 : 0;
+          heat = rate ? Math.min(100, heat + rate * I * dt) : Math.max(0, heat - 12 * dt);
+        } else heat = Math.max(0, heat - 18 * dt);
+        peakHeat = Math.max(peakHeat, heat);
+        heatText.textContent = `${Math.round(heat)}%`; heatBar.style.width = `${heat}%`;
+        heatVg.style.opacity = Math.min(1, heat / 90);
+        if (heat > 60 && !warned) { warned = true; showToast('Heat building. Step back to a safer distance.'); }
+        if (heat < 30) warned = false;
+        if (active && heat >= 100) { mistakes += 2; showToast('Too much heat exposure.'); completeScenario(false); }
+
+        // Particles
+        acc.f += 75 * I * dt; while (acc.f >= 1) { acc.f--; emit(fireP, 2.2 + rnd(-0.55, 0.55), 0.95, -7 + rnd(-0.42, 0.42), rnd(-0.15, 0.15), rnd(1.2, 2.4), rnd(-0.15, 0.15), rnd(0.6, 1.2), rnd(0.8, 1.5)); }
+        acc.s += 9 * I * dt; while (acc.s >= 1) { acc.s--; emit(smokeP, 2.2 + rnd(-0.4, 0.4), 2.0, -7 + rnd(-0.3, 0.3), rnd(0.15, 0.35), rnd(0.7, 1.2), rnd(-0.1, 0.1), rnd(2.5, 4), rnd(0.9, 1.4)); }
+        acc.e += 10 * I * dt; while (acc.e >= 1) { acc.e--; emit(emberP, 2.2 + rnd(-0.5, 0.5), 1.3, -7 + rnd(-0.4, 0.4), rnd(-0.5, 0.5), rnd(1.5, 3), rnd(-0.5, 0.5), rnd(1.2, 2.4), rnd(0.07, 0.13)); }
+        if (spraying && active && efficiency() > 0.3) { acc.st += 22 * dt; while (acc.st >= 1) { acc.st--; emit(steamP, 2.2 + rnd(-0.5, 0.5), 1.1, -7 + rnd(-0.4, 0.4), rnd(-0.3, 0.3), rnd(1, 1.8), rnd(-0.3, 0.3), rnd(0.9, 1.6), rnd(0.6, 1)); } }
+        step(fireP, dt, (q, k, i) => {
+          q.v.x += Math.sin(t * 5 + i) * dt * 0.5;
+          q.s.scale.setScalar(q.size * (1 - k * 0.75) * (0.35 + 0.65 * I));
+          q.s.material.opacity = (k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85) * 0.85;
+          q.s.material.color.setRGB(1, 0.85 - 0.6 * k, 0.45 - 0.4 * k);
+        });
+        step(smokeP, dt, (q, k) => {
+          q.s.scale.setScalar(q.size * (1 + k * 2.2) * (0.5 + 0.5 * I));
+          q.s.material.opacity = 0.32 * (1 - k) * Math.min(1, k * 6) * (0.3 + 0.7 * I);
+          q.s.material.color.setRGB(0.33, 0.35, 0.36);
+        });
+        step(steamP, dt, (q, k) => { q.s.scale.setScalar(q.size * (1 + k * 1.2)); q.s.material.opacity = 0.35 * (1 - k); q.s.material.color.setRGB(1, 1, 1); });
+        step(emberP, dt, (q, k, i) => { q.v.y -= dt * 0.4; q.s.scale.setScalar(q.size); q.s.material.opacity = (1 - k) * (0.7 + 0.3 * Math.sin(t * 30 + i)); q.s.material.color.setRGB(1, 0.6, 0.2); });
+        glow.material.opacity = 0.55 * I * (0.85 + 0.15 * Math.sin(t * 13)); glow.scale.setScalar(0.6 + 0.4 * I);
+
+        // Alarm strobe and evacuating workers
+        if (alarmOn && active) {
+          const on = Math.sin(t * 9) > 0.2; callLight.intensity = on ? 9 : 0; beaconMat.emissiveIntensity = on ? 3 : 0.3;
+        } else { callLight.intensity = 0; beaconMat.emissiveIntensity = 0.2; }
+        workers.forEach(w => {
+          if (alarmOn) {
+            const dx = w.dest.x - w.g.position.x, dz = w.dest.z - w.g.position.z, dist = Math.hypot(dx, dz);
+            if (dist > 0.2) {
+              w.g.position.x += dx / dist * 1.7 * dt; w.g.position.z += dz / dist * 1.7 * dt; w.g.rotation.y = Math.atan2(dx, dz);
+              const sw = Math.sin(t * 8 + w.i) * 0.6; w.L.rotation.x = sw; w.R.rotation.x = -sw;
+              w.torso.position.y = 1.15 + Math.abs(Math.sin(t * 8 + w.i)) * 0.03; return;
+            }
+          }
+          w.L.rotation.x *= 0.85; w.R.rotation.x *= 0.85; w.torso.scale.setScalar(1 + Math.sin(t * 1.6 + w.i) * 0.012);
+        });
+
+        // Camera and held-equipment realism: head bob, discharge shake, sway/recoil
+        const moving = active && ['KeyW', 'KeyA', 'KeyS', 'KeyD'].some(k => keys.has(k));
+        if (moving) { bob += dt * 9; camera.position.y = 1.7 + Math.sin(bob) * 0.04; }
+        else camera.position.y += (1.7 - camera.position.y) * 0.15;
+        camera.rotation.z = spraying ? Math.sin(t * 47) * 0.003 + Math.sin(t * 31) * 0.002 : 0;
+        if (pickedUp && active) {
+          extinguisher.position.y += Math.sin(t * 1.6) * 0.006;
+          if (spraying) { extinguisher.position.x += (Math.random() - 0.5) * 0.012; extinguisher.position.z += (Math.random() - 0.5) * 0.012; }
+        }
+
+        updateAudio(I, t);
+
+        // Contextual prompts layered over the original guidance
+        if (active && heat > 45) setPrompt('<b>Heat rising.</b> Step back to a safer distance (about 3–5 m).');
+        else if (active && !alarmOn && !pickedUp && camera.position.distanceTo(callPt) < 2.2) setPrompt('Press <span class="key">E</span> to activate the manual call point and raise the alarm.');
+        else if (active && spraying && !isAimingAtFire()) setPrompt('Aim at the base of the fire for an effective discharge.');
+      }
+
+      // --- GSAP UI motion
+      if (window.gsap) {
+        gsap.from('#welcomeModal .modal', { y: 34, opacity: 0, scale: 0.97, duration: 0.8, ease: 'power3.out' });
+        const watch = (sel, fn) => new MutationObserver(() => { const el = document.querySelector(sel); if (!el.classList.contains('hidden')) fn(el); }).observe(document.querySelector(sel), { attributes: true, attributeFilter: ['class'] });
+        watch('#resultModal', el => gsap.from(el.querySelector('.modal'), { y: 30, opacity: 0, scale: 0.96, duration: 0.6, ease: 'back.out(1.4)' }));
+        watch('#hud', el => gsap.from(el.querySelectorAll('.card'), { x: -30, opacity: 0, duration: 0.55, stagger: 0.12, ease: 'power2.out' }));
+        watch('#toast', el => gsap.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.25 }));
+      }
+
+      return {
+        update, efficiency, composer,
+        penalty: () => (alarmOn ? 0 : 10) + (peakHeat > 70 ? 5 : 0),
+        resize() { composer.setPixelRatio(Math.min(devicePixelRatio, 1.7)); composer.setSize(innerWidth, innerHeight); },
+        get alarmOn() { return alarmOn; },
+        get peakHeat() { return peakHeat; }
+      };
+    })();
+
     function animate() {
       requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.04);
@@ -796,7 +1130,8 @@
       updateSpray(dt, t);
       animateEnvironment(t);
       updateGuidance();
-      renderer.render(scene, camera);
+      enhance.update(dt, t);
+      enhance.composer.render();
     }
     animate();
 
@@ -805,6 +1140,7 @@
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+      enhance.resize();
     });
 
     // Keep the UI responsive when the user returns from a modal.
