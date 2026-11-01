@@ -17,16 +17,19 @@
   </script>
   <style>
     :root {
-      --bg: #101820;
-      --panel: rgba(12, 22, 30, .88);
+      /* Industrial / safety-focused palette: dark charcoal surfaces, safety-orange primary,
+         industrial-yellow secondary. Matches the Re-EL design direction in the Ziyakha spec. */
+      --bg: #101418;
+      --panel: rgba(14, 18, 22, .9);
       --panel-border: rgba(255,255,255,.14);
-      --text: #f5f8fa;
-      --muted: #b7c5ce;
-      --accent: #55c7e8;
-      --accent-dark: #087ca0;
-      --good: #72e0a4;
-      --warn: #ffca70;
-      --danger: #ff765f;
+      --text: #f5f7f8;
+      --muted: #b4bcc2;
+      --accent: #ff7a1a;          /* safety orange - primary */
+      --accent-dark: #b8500a;
+      --accent-2: #ffc21a;        /* industrial yellow - secondary */
+      --good: #5fd48a;
+      --warn: #ffc21a;
+      --danger: #ff5a45;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -37,7 +40,7 @@
     .topbar { position: fixed; top: 18px; left: 20px; right: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; pointer-events: none; }
     .brand, .top-actions { pointer-events: auto; }
     .brand { display: flex; align-items: center; gap: 11px; padding: 10px 14px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--panel); backdrop-filter: blur(12px); }
-    .logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #07151c; font-weight: 900; letter-spacing: -1px; background: linear-gradient(135deg, #82e4ff, #24a7d1); }
+    .logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #1a0d02; font-weight: 900; letter-spacing: -1px; background: linear-gradient(135deg, #ffb457, #f4700f); }
     .brand-name { font-size: 13px; font-weight: 800; letter-spacing: .13em; }
     .brand-sub { font-size: 10px; color: var(--muted); margin-top: 3px; letter-spacing: .12em; text-transform: uppercase; }
     .top-actions { display: flex; gap: 8px; }
@@ -50,13 +53,13 @@
     .mission-title { font-size: 18px; margin: 8px 0 7px; letter-spacing: -.025em; }
     .muted { color: var(--muted); font-size: 12px; line-height: 1.55; }
     .objective { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--panel-border); }
-    .step-num { flex: 0 0 25px; width: 25px; height: 25px; border-radius: 8px; display: grid; place-items: center; color: #07151c; background: var(--accent); font-size: 12px; font-weight: 900; }
+    .step-num { flex: 0 0 25px; width: 25px; height: 25px; border-radius: 8px; display: grid; place-items: center; color: #1a0d02; background: var(--accent); font-size: 12px; font-weight: 900; }
     .objective strong { display: block; font-size: 12px; margin: 2px 0 4px; }
     .objective span { display: block; font-size: 11px; color: var(--muted); line-height: 1.45; }
     .meter-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 9px; }
     .meter-head strong { color: var(--text); font-family: "JetBrains Mono", ui-monospace, monospace; }
     .meter { height: 7px; border-radius: 20px; background: rgba(255,255,255,.12); overflow: hidden; }
-    .meter-fill { height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffca70, #ff765f); transition: width .25s ease; }
+    .meter-fill { height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .25s ease; }
     .status-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 100px; background: rgba(255,202,112,.12); color: var(--warn); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
     .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
     .bottom-center { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 30px)); display: grid; gap: 12px; justify-items: center; }
@@ -73,15 +76,46 @@
     .modal { width: min(550px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 22px; padding: clamp(22px, 4vw, 36px); background: linear-gradient(145deg, rgba(18,32,43,.98), rgba(8,17,24,.98)); box-shadow: 0 30px 100px rgba(0,0,0,.45); }
     .modal h1 { font-size: clamp(28px, 5vw, 42px); line-height: 1.03; letter-spacing: -.05em; margin: 13px 0 12px; }
     .modal p { color: var(--muted); line-height: 1.65; font-size: 13px; }
-    .modal-label { display: inline-flex; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 8px; background: rgba(85,199,232,.12); color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .modal-label { display: inline-flex; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 8px; background: rgba(255,122,26,.14); color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
     .modal-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 23px; }
-    .primary { padding: 13px 17px; border-radius: 11px; background: var(--accent); color: #06151c; font-weight: 850; font-size: 12px; }
-    .primary:hover { background: #83e2fa; }
+    .primary { padding: 13px 17px; border-radius: 11px; background: var(--accent); color: #1a0d02; font-weight: 850; font-size: 12px; }
+    .primary:hover { background: #ff9a49; }
     .secondary { padding: 13px 17px; border-radius: 11px; background: rgba(255,255,255,.07); color: var(--text); border: 1px solid var(--panel-border); font-weight: 700; font-size: 12px; }
     .disclaimer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--panel-border); color: #9fb0bb; font-size: 10px; line-height: 1.55; }
     .hidden { display: none !important; }
     .toast { position: fixed; top: 82px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,16,22,.92); border: 1px solid var(--panel-border); border-radius: 11px; padding: 11px 15px; font-size: 12px; max-width: calc(100vw - 30px); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
     .result-score { font-size: 42px; letter-spacing: -.05em; font-weight: 900; color: var(--good); margin: 5px 0 10px; font-family: "JetBrains Mono", ui-monospace, monospace; }
+    .result-score span { font-size: 15px; color: var(--muted); letter-spacing: 0; }
+    /* P.A.S.S. progress indicator: Pull / Aim / Squeeze / Sweep, each with its own state. */
+    .pass-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 14px; }
+    .pass-step { border: 1px solid var(--panel-border); border-radius: 9px; padding: 7px 3px 6px; text-align: center; background: rgba(255,255,255,.03); transition: border-color .2s ease, background .2s ease; }
+    .pass-step b { display: block; font-size: 11px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .pass-step i { display: block; margin-top: 4px; font-size: 8px; font-style: normal; letter-spacing: .08em; text-transform: uppercase; color: #79828a; }
+    .pass-step.inprogress { border-color: var(--accent); background: rgba(255,122,26,.15); }
+    .pass-step.inprogress b { color: var(--accent); }
+    .pass-step.inprogress i { color: #ffcb9b; }
+    .pass-step.completed { border-color: rgba(95,212,138,.55); background: rgba(95,212,138,.13); }
+    .pass-step.completed b { color: var(--good); }
+    .pass-step.completed i { color: #a5e5bf; }
+    /* Per-criterion assessment rows on the completion screen. */
+    .criteria { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 6px; }
+    .criteria li { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px 11px; border: 1px solid var(--panel-border); border-radius: 9px; background: rgba(255,255,255,.03); font-size: 11px; color: var(--muted); }
+    .criteria li b { font-weight: 700; color: var(--text); }
+    .criteria li em { font-style: normal; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; letter-spacing: .03em; }
+    .criteria li.ok { border-color: rgba(95,212,138,.42); }
+    .criteria li.ok em { color: var(--good); }
+    .criteria li.part { border-color: rgba(255,194,26,.42); }
+    .criteria li.part em { color: var(--warn); }
+    .criteria li.miss { border-color: rgba(255,90,69,.42); }
+    .criteria li.miss em { color: var(--danger); }
+    .improve { margin: 14px 0 0; padding: 12px 14px; border-left: 3px solid var(--accent-2); border-radius: 8px; background: rgba(255,194,26,.07); font-size: 11px; line-height: 1.6; color: var(--muted); }
+    .improve b { color: var(--text); }
+    .stat-row { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; }
+    .stat-row div { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+    .stat-row strong { display: block; margin-top: 4px; font-size: 17px; letter-spacing: -.02em; text-transform: none; color: var(--text); font-family: "JetBrains Mono", ui-monospace, monospace; }
+    .pause-list { display: grid; gap: 6px; margin: 16px 0 0; }
+    .pause-list div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--panel-border); border-radius: 8px; background: rgba(255,255,255,.03); font-size: 11px; color: var(--muted); }
+    .pause-list b { color: var(--text); font-weight: 700; }
     /* Enter-VR entry point (created by VRButton) restyled to match the HUD chrome. */
     #VRButton {
       position: fixed !important; left: auto !important; right: 20px !important; bottom: 22px !important;
@@ -91,7 +125,7 @@
       font: 800 11px/1 Inter, ui-sans-serif, system-ui, sans-serif !important;
       letter-spacing: .12em !important; text-transform: uppercase !important; text-decoration: none !important; text-align: center !important;
     }
-    #VRButton:hover { border-color: var(--accent) !important; background: rgba(85,199,232,.16) !important; }
+    #VRButton:hover { border-color: var(--accent) !important; background: rgba(255,122,26,.16) !important; }
     @media (max-width: 620px) {
       .topbar { top: 10px; left: 10px; right: 10px; }
       .brand { padding: 8px 10px; }
@@ -138,12 +172,21 @@
           <span id="objectiveText">Look around the site and locate the incident.</span>
         </div>
       </div>
+      <!-- P.A.S.S. progress indicator: Pull, Aim, Squeeze, Sweep -->
+      <div class="pass-strip" id="passStrip">
+        <div class="pass-step" data-step="pull"><b>Pull</b><i>Not started</i></div>
+        <div class="pass-step" data-step="aim"><b>Aim</b><i>Not started</i></div>
+        <div class="pass-step" data-step="squeeze"><b>Squeeze</b><i>Not started</i></div>
+        <div class="pass-step" data-step="sweep"><b>Sweep</b><i>Not started</i></div>
+      </div>
     </section>
     <section class="card">
-      <div class="meter-head"><span>Simulated fire intensity</span><strong id="intensityText">100%</strong></div>
+      <div class="meter-head"><span>Procedure state</span><strong id="scenarioStateText">SCENARIO_READY</strong></div>
+      <div class="meter-head" style="margin-top:13px"><span>Fire state</span><strong id="fireStateText">BURNING</strong></div>
+      <div class="meter-head" style="margin-top:13px"><span>Simulated fire intensity</span><strong id="intensityText">100%</strong></div>
       <div class="meter"><div class="meter-fill" id="intensityBar"></div></div>
       <div class="meter-head" style="margin-top:13px;margin-bottom:0"><span>Discharge supply</span><strong id="supplyText">100%</strong></div>
-      <div class="meter" style="margin-top:8px"><div id="supplyBar" class="meter-fill" style="width:100%;background:linear-gradient(90deg,#55c7e8,#72e0a4)"></div></div>
+      <div class="meter" style="margin-top:8px"><div id="supplyBar" class="meter-fill" style="width:100%;background:linear-gradient(90deg,#5fd48a,#ffc21a)"></div></div>
     </section>
   </aside>
 
@@ -155,7 +198,7 @@
       <div class="control-chip"><b>Mouse</b> Look</div>
       <div class="control-chip"><b>E</b> Interact / pick up</div>
       <div class="control-chip"><b>Hold click</b> Discharge</div>
-      <div class="control-chip"><b>Esc</b> Release mouse</div>
+      <div class="control-chip"><b>Esc</b> Pause</div>
     </div>
   </div>
 
@@ -165,14 +208,36 @@
     <div class="modal">
       <div class="modal-label"><span class="dot"></span> Prototype preview</div>
       <h1>Respond with<br>confidence.</h1>
-      <p>Explore a construction-site scenario, locate the extinguisher and interact with a simulated fire. This is an early visual prototype showing the intended direction for the Re-EL firefighting training experience.</p>
-      <p><strong style="color:#f5f8fa">Desktop controls:</strong> WASD to move, mouse to look, E to collect the extinguisher, and hold the left mouse button to simulate discharge after collecting it. Optionally press E at the red call point first to raise the alarm, and keep a safe distance (3–5 m) from the heat.</p>
-      <p><strong style="color:#f5f8fa">Meta Quest (WebXR):</strong> open this page in Quest Browser and tap <em>Enter VR</em> (bottom-right). The left thumbstick moves, the right snap-turns, pressing a thumbstick teleports, the grip collects the extinguisher and pulls the safety pin, and the trigger discharges. Objectives and meters ride on your left wrist.</p>
+      <p class="muted" style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent-2)">Site briefing</p>
+      <p>A fire has been detected on the construction site. Assess the situation and follow the guided extinguisher procedure.</p>
+      <p style="border-left:3px solid var(--danger);padding-left:12px"><strong style="color:#f5f7f8">Before you fight any fire:</strong> raise the alarm, follow your site emergency procedure and evacuate if required. Only attempt to fight a small, contained fire if it is safe to do so and you have received the appropriate training. If in doubt, get out.</p>
+      <p><strong style="color:#f5f7f8">Desktop controls:</strong> WASD to move, mouse to look, E to collect the extinguisher, and hold the left mouse button to discharge after preparing it. Press E at the red call point first to raise the alarm, and keep a safe distance (3–5 m) from the heat. Press Esc at any time to pause.</p>
+      <p><strong style="color:#f5f7f8">Meta Quest 2 / Quest 3 (WebXR):</strong> open this page in Quest Browser and tap <em>Enter VR</em> (bottom-right). The left thumbstick moves, the right snap-turns, pressing a thumbstick teleports, the grip collects the extinguisher and pulls the safety pin, and the trigger discharges. Objectives and meters ride on your left wrist.</p>
       <div class="modal-actions">
         <button class="primary" id="startBtn">Enter simulation →</button>
         <button class="secondary" id="guidedBtn">Start guided demo</button>
       </div>
-      <div class="disclaimer">Training concept only. Fire behaviour, equipment operation and assessment criteria are illustrative and must be reviewed by a qualified fire-safety professional before use as actual training.</div>
+      <div class="disclaimer">Training concept only. Fire behaviour, equipment operation and assessment criteria are illustrative and must be reviewed by a qualified fire-safety professional before use as actual training. This is not a substitute for accredited fire-safety training.</div>
+    </div>
+  </div>
+
+  <div class="modal-wrap hidden" id="pauseModal">
+    <div class="modal">
+      <div class="modal-label"><span class="dot"></span> Paused</div>
+      <h1>Exercise paused.</h1>
+      <p>The scenario is frozen. Your recorded interactions are kept.</p>
+      <div class="pause-list">
+        <div><span>W / A / S / D</span><b>Move</b></div>
+        <div><span>Mouse</span><b>Look around</b></div>
+        <div><span>E</span><b>Collect extinguisher / pull pin / raise alarm</b></div>
+        <div><span>Hold left mouse</span><b>Discharge when prepared</b></div>
+        <div><span>R</span><b>Restart the exercise</b></div>
+        <div><span>Esc</span><b>Resume</b></div>
+      </div>
+      <div class="modal-actions">
+        <button class="primary" id="resumeBtn">Resume exercise</button>
+        <button class="secondary" id="pauseRestartBtn">Restart</button>
+      </div>
     </div>
   </div>
 
@@ -180,8 +245,11 @@
     <div class="modal">
       <div class="modal-label"><span class="dot"></span> Scenario result</div>
       <h1 id="resultHeading">Scenario complete.</h1>
-      <div class="result-score" id="resultScore">PASS</div>
+      <div class="result-score" id="resultScore">0 <span>/ 100</span></div>
       <p id="resultCopy">You completed the simulated exercise.</p>
+      <ul class="criteria" id="resultCriteria"></ul>
+      <div class="stat-row" id="resultStats"></div>
+      <p class="improve" id="resultImprove"></p>
       <div class="modal-actions">
         <button class="primary" id="againBtn">Run scenario again</button>
         <button class="secondary" id="closeResultBtn">Return to site</button>
@@ -214,6 +282,10 @@
       BlendFunction, KernelSize
     } from 'postprocessing';
 
+    // Brand palette shared with the CSS custom properties - the 3D chrome (target ring, XR
+    // panel, controller rays) has to match the HUD, so the hex lives here once.
+    const C_ORANGE = 0xff7a1a, C_YELLOW = 0xffc21a, C_GREEN = 0x5fd48a, C_RED = 0xff5a45;
+
     const container = document.getElementById('scene');
     const ui = {
       hud: document.getElementById('hud'),
@@ -223,6 +295,9 @@
       objectiveTitle: document.getElementById('objectiveTitle'),
       objectiveText: document.getElementById('objectiveText'),
       stepNum: document.getElementById('stepNum'),
+      passStrip: document.getElementById('passStrip'),
+      scenarioStateText: document.getElementById('scenarioStateText'),
+      fireStateText: document.getElementById('fireStateText'),
       intensityText: document.getElementById('intensityText'),
       intensityBar: document.getElementById('intensityBar'),
       supplyText: document.getElementById('supplyText'),
@@ -231,17 +306,28 @@
       statusPill: document.getElementById('statusPill'),
       toast: document.getElementById('toast'),
       welcome: document.getElementById('welcomeModal'),
-      result: document.getElementById('resultModal')
+      pause: document.getElementById('pauseModal'),
+      result: document.getElementById('resultModal'),
+      resultHeading: document.getElementById('resultHeading'),
+      resultScore: document.getElementById('resultScore'),
+      resultCopy: document.getElementById('resultCopy'),
+      resultCriteria: document.getElementById('resultCriteria'),
+      resultStats: document.getElementById('resultStats'),
+      resultImprove: document.getElementById('resultImprove')
     };
+    // One element handle per P.A.S.S. step, in procedure order.
+    const passSteps = Array.from(ui.passStrip.querySelectorAll('.pass-step'));
 
     // ===================== QUALITY TIERS =====================
     // Every visual upgrade below is gated by this object. Quest 1 is the performance
-    // floor: build for it first, then let Quest 2 and desktop scale up.
+    // floor: build for it first, then let Quest 2, Quest 3 and desktop scale up.
+    // The spec's VR target is Meta Quest 2 and Meta Quest 3, so Quest 3 gets its own budget
+    // rather than inheriting the Quest 2 reductions.
     function detectTierName() {
       const ua = navigator.userAgent || '';
       if (!/OculusBrowser|Quest/i.test(ua)) return 'desktop';
-      // Anything newer than Quest 1 (Quest 2 / Pro / 3) gets the mid tier.
-      if (/Quest 2|Quest Pro|Quest 3/i.test(ua)) return 'quest2';
+      if (/Quest 3|Quest 3S/i.test(ua)) return 'quest3';
+      if (/Quest 2|Quest Pro/i.test(ua)) return 'quest2';
       return 'quest1';
     }
     const QUALITY_TIERS = {
@@ -251,6 +337,13 @@
         softParticles: true, volumetric: true,
         particleScale: 1, textureSize: 1024, foveation: 0, framebufferScale: 1,
         moveSpeed: 3.0, snapAngle: Math.PI / 6, teleport: true
+      },
+      quest3: {
+        label: 'Quest 3', pixelRatio: 1.2,
+        antialias: true, shadowMapSize: 1536, postFX: false, bloom: false,
+        softParticles: false, volumetric: false,
+        particleScale: 0.75, textureSize: 768, foveation: 1, framebufferScale: 0.95,
+        moveSpeed: 2.8, snapAngle: Math.PI / 6, teleport: true
       },
       quest2: {
         label: 'Quest 2', pixelRatio: 1,
@@ -269,6 +362,9 @@
     };
     const tierName = detectTierName();
     const tier = QUALITY_TIERS[tierName];
+    // Every per-tier detail count below is a lookup against a full tier key set, so adding a
+    // tier never silently falls back to the desktop (or Quest 1) budget.
+    const tierPick = (values, fallback) => (tierName in values ? values[tierName] : fallback);
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x9ab7c5);
@@ -283,6 +379,42 @@
     dolly.name = 'camera-dolly';
     dolly.add(camera);
     scene.add(dolly);
+
+    // --- Collision: the slab edge plus one axis-aligned box per solid structure, instead of a single
+    // rectangle. Each entry is [centreX, centreZ, halfWidth, halfDepth] and is expanded by the
+    // player radius at test time, so the user is stopped by walls, columns, the container, the
+    // pallet stack, the drums and the burning crate rather than an invisible boundary.
+    const PLAYER_RADIUS = 0.32;
+    const WORLD_BOUNDS = { minX: -13, maxX: 13, minZ: -10.2, maxZ: 11 };
+    const COLLIDERS = [
+      [0, -11.0, 11.0, 0.35],                                   // rear wall
+      [-9, -10.6, 0.5, 0.5], [-3, -10.6, 0.5, 0.5], [3, -10.6, 0.5, 0.5], [9, -10.6, 0.5, 0.5],  // concrete columns
+      [-7, -5.6, 0.22, 0.22], [-2, -5.6, 0.22, 0.22], [3, -5.6, 0.22, 0.22], [8, -5.6, 0.22, 0.22],  // steel uprights
+      [-5.5, -7.3, 2.1, 1.0],                                   // raised platform
+      [5.8, -3.3, 1.3, 0.9],                                    // pallet + material stack
+      [-7.7, -1.05, 0.5, 1.5],                                  // scaffold frame
+      [11, -5.8, 1.9, 2.9],                                     // site container
+      [-3.6, -3.6, 0.65, 0.4],                                  // toolbox
+      [-1.9, -4.8, 0.15, 0.15],                                 // safety sign post
+      [-0.55, -3.5, 0.15, 0.15],                                // alarm call-point post
+      [4.4, -8.6, 0.32, 0.32], [5.2, -8.9, 0.32, 0.32], [4.8, -8.0, 0.32, 0.32],  // drums
+      [2.2, -7.0, 0.85, 0.7]                                    // burning crate
+    ];
+    // Interaction props the user must be able to reach stay out of the collider list by design:
+    // the extinguisher, the fire's aim point and the teleport pads all remain walkable.
+    function blocked(x, z) {
+      if (x < WORLD_BOUNDS.minX || x > WORLD_BOUNDS.maxX || z < WORLD_BOUNDS.minZ || z > WORLD_BOUNDS.maxZ) return true;
+      for (let i = 0; i < COLLIDERS.length; i++) {
+        const c = COLLIDERS[i];
+        if (Math.abs(x - c[0]) < c[2] + PLAYER_RADIUS && Math.abs(z - c[1]) < c[3] + PLAYER_RADIUS) return true;
+      }
+      return false;
+    }
+    // Axis-separated resolution, so the player slides along a wall instead of sticking to it.
+    function moveTo(x, z) {
+      if (!blocked(x, dolly.position.z)) dolly.position.x = x;
+      if (!blocked(dolly.position.x, z)) dolly.position.z = z;
+    }
 
     const renderer = new THREE.WebGLRenderer({ antialias: tier.antialias, powerPreference: 'high-performance' });
     renderer.setPixelRatio(tier.pixelRatio);
@@ -454,7 +586,7 @@
         + Math.sin(x * 0.017 + z * 0.021) * 1.6
         + Math.cos(x * 0.11 - z * 0.09) * 0.45) / 3.05;
     }
-    const groundSegments = tierName === 'quest1' ? 48 : tierName === 'quest2' ? 64 : 110;
+    const groundSegments = tierPick({ desktop: 110, quest3: 80, quest2: 64, quest1: 48 }, 110);
     const groundGeo = new THREE.PlaneGeometry(260, 260, groundSegments, groundSegments);
     {
       const pos = groundGeo.attributes.position;
@@ -585,7 +717,7 @@
       [-8.6, -8.6, 3.6, 2.4, 0.5], [-6.4, 6.6, 2.7, 1.9, 1.1], [8.6, -6.8, 3.1, 2.1, 0.3],
       [9.8, 5.4, 2.3, 1.7, 2.0], [-10.4, 1.6, 2.5, 1.6, 1.6], [1.8, 7.9, 2.9, 1.9, 0.9],
       [-3.4, -11.4, 2.3, 1.5, 2.4]
-    ].slice(0, { desktop: 7, quest2: 5, quest1: 3 }[tierName] || 7);
+    ].slice(0, tierPick({ desktop: 7, quest3: 6, quest2: 5, quest1: 3 }, 7));
     // Low roughness and a touch of metalness let the HDRI environment reflect off the film of
     // water, which is what sells it as wet rather than as a dark stain.
     const puddleMat = trackLit(new THREE.MeshStandardMaterial({
@@ -597,7 +729,7 @@
     // Grime spirals out from the work area, so it never lands under the fire itself.
     const grimeSpots = [];
     {
-      const n = { desktop: 12, quest2: 8, quest1: 5 }[tierName] || 12;
+      const n = tierPick({ desktop: 12, quest3: 10, quest2: 8, quest1: 5 }, 12);
       for (let i = 0; i < n; i++) {
         const a = i * 2.39996, r = 3.6 + (i % 4) * 2.7;
         grimeSpots.push({
@@ -757,18 +889,71 @@
     charredTop.position.set(0, 0.9, 0);
     fireBase.add(charredTop);
 
+    // The cone layer is the fire on every tier that cannot afford the raymarched volume, so it is
+    // shaded like flame rather than painted flat: a vertical heat ramp from a white-hot base to a
+    // cool red tip, an upward flicker driven by a seed taken from the instance's own position, and
+    // additive blending so overlapping cones build a bright core instead of stacking opacity.
+    const FLAME_VERT = `
+      varying vec2 vUv;
+      varying float vSeed;
+      void main() {
+        vUv = uv;
+        // Seed the flicker from the cone's own world position so every flame runs out of phase
+        // without an extra attribute or uniform. modelMatrix exists only in the vertex stage.
+        vSeed = fract(sin(dot(modelMatrix[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`;
+    const FLAME_FRAG = `
+      uniform float uTime;
+      uniform vec3 uHot;
+      uniform vec3 uMid;
+      uniform vec3 uCool;
+      varying vec2 vUv;
+      varying float vSeed;
+      void main() {
+        // ConeGeometry puts uv.y at 0 on the base ring and 1 at the apex.
+        float h = clamp(vUv.y, 0.0, 1.0);
+        float flick = 0.78 + 0.22 * sin(uTime * 9.0 + h * 7.5 + vSeed * 6.2831);
+        vec3 col = h < 0.45 ? mix(uHot, uMid, h / 0.45) : mix(uMid, uCool, (h - 0.45) / 0.55);
+        // Fade in above the fuel so the base is not a hard ring, and out towards the tip.
+        float a = (1.0 - smoothstep(0.15, 1.0, h)) * flick;
+        a *= 0.30 + 0.70 * smoothstep(0.0, 0.22, h);
+        gl_FragColor = vec4(col * (1.15 + 0.5 * (1.0 - h)), clamp(a, 0.0, 1.0));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`;
+    function flameMaterial(hot, mid, cool) {
+      return new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0 },
+          uHot: { value: new THREE.Color(hot) },
+          uMid: { value: new THREE.Color(mid) },
+          uCool: { value: new THREE.Color(cool) }
+        },
+        vertexShader: FLAME_VERT, fragmentShader: FLAME_FRAG,
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending
+      });
+    }
+    // Three ramps: a wide outer sheet, a bright body and a small white-hot core.
     const flameMaterials = [
-      new THREE.MeshBasicMaterial({ color: 0xff3b16, transparent: true, opacity: 0.92, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0xff8a18, transparent: true, opacity: 0.88, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.82, side: THREE.DoubleSide })
+      flameMaterial(0xffb03a, 0xff6a15, 0xd21f08),
+      flameMaterial(0xffe07a, 0xffa32a, 0xff5a12),
+      flameMaterial(0xfffdf0, 0xffe08a, 0xffa22b)
     ];
     const flames = [];
-    for (let i = 0; i < 13; i++) {
-      const h = 0.8 + Math.random() * 1.2;
-      const r = 0.22 + Math.random() * 0.26;
-      const flame = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7, 1, true), flameMaterials[i % 3]);
-      flame.position.set((Math.random() - .5) * 1.1, 1.0 + h * .48, (Math.random() - .5) * .85);
+    for (let i = 0; i < 15; i++) {
+      // The last five cones are a tighter inner core, so the fire has depth rather than one shell.
+      const core = i >= 10;
+      const h = core ? 0.7 + Math.random() * 0.8 : 1.0 + Math.random() * 1.3;
+      const r = core ? 0.14 + Math.random() * 0.14 : 0.24 + Math.random() * 0.26;
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(r, h, core ? 6 : 8, 1, true), flameMaterials[core ? 2 : i % 2]);
+      const spread = core ? 0.5 : 1.05;
+      flame.position.set((Math.random() - .5) * spread, 0.95 + h * .48, (Math.random() - .5) * spread * 0.8);
       flame.rotation.z = (Math.random() - .5) * .35;
+      // The cones are scaled every frame, so a stale bounding sphere would pop them at the screen
+      // edge; the group is tiny, so taking them out of frustum culling costs nothing.
+      flame.frustumCulled = false;
       fireBase.add(flame);
       flames.push({ mesh: flame, h, phase: Math.random() * 6.28, baseScale: 0.8 + Math.random() * 0.45 });
     }
@@ -777,26 +962,147 @@
     scene.add(fireLight);
 
     // Extinguisher and its mounting station.
+    // A recognisable dry-chemical-powder extinguisher: glossy red lathed body with a recessed
+    // base, brass valve, carry handle plus squeeze lever, a yellow safety pin with a tamper seal,
+    // a pressure gauge and a black hose ending in a flared horn. This primitive build is what the
+    // training interaction actually targets, so it has to read as the real thing whether or not
+    // the streamed glTF model arrives.
     const extinguisher = new THREE.Group();
     extinguisher.name = 'extinguisher';
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.22, 0.95, 16), materials.red);
-    body.position.y = 0.55;
-    body.castShadow = true;
+    const extinguisherRed = pbrMaterial('metal_plate', { repeat: 1, color: 0xd81f26, metalness: 0.25, roughness: 0.3 });
+    const brass = trackLit(new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.34, metalness: 0.85 }));
+
+    function stickerTex(w, h, draw) {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      draw(c.getContext('2d'), w, h);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = Math.min(4, MAX_ANISOTROPY);
+      return t;
+    }
+    // The nameplate doubles as the training aid: the four P.A.S.S. actions are printed on the unit.
+    const extinguisherLabelTex = stickerTex(320, 512, (g, w, h) => {
+      g.fillStyle = '#f2f0e6'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#d81f26'; g.fillRect(0, 0, w, 46);
+      g.fillStyle = '#ffffff'; g.font = 'bold 21px Arial'; g.textAlign = 'center';
+      g.fillText('FIRE EXTINGUISHER', w / 2, 32);
+      g.fillStyle = '#1c1c1c'; g.font = 'bold 26px Arial';
+      g.fillText('DRY CHEMICAL', w / 2, 92);
+      g.fillText('POWDER', w / 2, 124);
+      g.fillStyle = '#d81f26'; g.font = 'bold 22px Arial';
+      g.fillText('ABC RATED', w / 2, 158);
+      g.fillStyle = '#e8e6dc'; g.fillRect(20, 182, w - 40, 230);
+      g.strokeStyle = '#d81f26'; g.lineWidth = 4; g.strokeRect(20, 182, w - 40, 230);
+      g.fillStyle = '#d81f26'; g.font = 'bold 32px Arial';
+      g.fillText('P.A.S.S.', w / 2, 218);
+      g.fillStyle = '#1c1c1c'; g.font = 'bold 18px Arial'; g.textAlign = 'left';
+      ['Pull the pin', 'Aim at the base', 'Squeeze the lever', 'Sweep side to side']
+        .forEach((line, i) => g.fillText(line, 40, 254 + i * 36));
+      g.textAlign = 'center';
+      g.fillStyle = '#1c1c1c'; g.font = 'bold 15px Arial';
+      g.fillText('9 kg DCP', w / 2, 438);
+      g.fillStyle = '#3a3a3a'; g.font = '13px Arial';
+      g.fillText('Recharge after any use.', w / 2, 462);
+      g.fillText('RE-EL SAFETY', w / 2, 484);
+      g.fillStyle = '#d81f26'; g.fillRect(0, h - 18, w, 18);
+    });
+    const gaugeTex = stickerTex(128, 128, (g, w, h) => {
+      g.fillStyle = '#f4f4ee'; g.beginPath(); g.arc(64, 64, 62, 0, 6.2832); g.fill();
+      g.strokeStyle = '#2a2a2a'; g.lineWidth = 5; g.beginPath(); g.arc(64, 64, 58, 0, 6.2832); g.stroke();
+      // Operating band in green between two red "recharge / overcharged" ends.
+      g.lineWidth = 12; g.strokeStyle = '#d32f2f';
+      g.beginPath(); g.arc(64, 64, 46, Math.PI * 1.18, Math.PI * 1.42); g.stroke();
+      g.strokeStyle = '#2e9e52';
+      g.beginPath(); g.arc(64, 64, 46, Math.PI * 1.42, Math.PI * 1.80); g.stroke();
+      g.strokeStyle = '#d32f2f';
+      g.beginPath(); g.arc(64, 64, 46, Math.PI * 1.80, Math.PI * 2.04); g.stroke();
+      g.strokeStyle = '#1c1c1c'; g.lineWidth = 5;
+      g.beginPath(); g.moveTo(64, 64);
+      g.lineTo(64 + Math.cos(Math.PI * 1.62) * 40, 64 + Math.sin(Math.PI * 1.62) * 40); g.stroke();
+      g.fillStyle = '#1c1c1c'; g.beginPath(); g.arc(64, 64, 6, 0, 6.2832); g.fill();
+    });
+
+    // Body profile: flat base, straight wall, shoulder into the neck. Lathed so the silhouette is
+    // a real cylinder-style extinguisher rather than a plain tube.
+    const body = new THREE.Mesh(new THREE.LatheGeometry([
+      [0.000, 0.000], [0.135, 0.000], [0.176, 0.028], [0.185, 0.068],
+      [0.187, 0.450], [0.185, 0.735], [0.170, 0.795], [0.126, 0.848],
+      [0.084, 0.880], [0.078, 0.900]
+    ].map(([x, y]) => new THREE.Vector2(x, y)), 22), extinguisherRed);
+    body.castShadow = true; body.receiveShadow = true;
     extinguisher.add(body);
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.16, 12), materials.steel);
-    neck.position.y = 1.1; extinguisher.add(neck);
-    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 7, 16, Math.PI), materials.black);
-    handle.rotation.x = Math.PI / 2; handle.position.set(0, 1.23, 0); extinguisher.add(handle);
+    const baseRim = new THREE.Mesh(new THREE.CylinderGeometry(0.163, 0.166, 0.042, 22), materials.black);
+    baseRim.position.y = 0.021; extinguisher.add(baseRim);
+    // Valve body and neck.
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.068, 0.14, 16), materials.steel);
+    neck.position.y = 0.952; extinguisher.add(neck);
+    const valve = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.095, 0.10), brass);
+    valve.position.y = 1.005; extinguisher.add(valve);
+    // Pressure gauge, mounted on the front shoulder of the valve.
+    const gaugeBody = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.022, 18), materials.steel);
+    gaugeBody.rotation.x = Math.PI / 2; gaugeBody.position.set(0.045, 1.012, 0.044);
+    extinguisher.add(gaugeBody);
+    const gaugeFace = new THREE.Mesh(new THREE.CircleGeometry(0.032, 18),
+      new THREE.MeshStandardMaterial({ map: gaugeTex, roughness: 0.35, metalness: 0.05 }));
+    gaugeFace.position.set(0.045, 1.012, 0.056); extinguisher.add(gaugeFace);
+
+    // Carry handle: two posts and a grip bar, plus the squeeze lever that the "S" refers to.
+    const handle = new THREE.Group();
+    [-0.072, 0.072].forEach(x => {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.085, 0.026), materials.black);
+      post.position.set(x, 1.046, 0); handle.add(post);
+    });
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.175, 0.032, 0.034), materials.black);
+    grip.position.set(0, 1.10, 0); handle.add(grip);
+    const lever = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.022, 0.05), materials.black);
+    lever.position.set(0.02, 1.036, 0.014); lever.rotation.z = 0.10; handle.add(lever);
+    handle.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    extinguisher.add(handle);
+
+    // Hose and flared horn nozzle. The nozzle stays at the same local anchor the spray logic
+    // uses, so the discharge still originates from the correct point.
     const hose = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0.13, 1.0, 0), new THREE.Vector3(0.28, 0.95, 0.03), new THREE.Vector3(0.32, 0.65, 0.08), new THREE.Vector3(0.42, 0.48, 0.08)
-    ]), 12, 0.035, 7, false), materials.black);
-    extinguisher.add(hose);
-    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 0.28, 10), materials.black);
-    nozzle.rotation.z = Math.PI / 2; nozzle.position.set(0.42, 0.48, 0.08); extinguisher.add(nozzle);
-    const label = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.38), new THREE.MeshBasicMaterial({ color: 0xf5f3e9 }));
-    label.position.set(0, 0.58, 0.205); extinguisher.add(label);
-    const pin = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.018, 6, 14), materials.yellow);
-    pin.position.set(0, 1.23, 0.05); extinguisher.add(pin);
+      new THREE.Vector3(0.10, 0.955, 0.02), new THREE.Vector3(0.24, 0.90, 0.05),
+      new THREE.Vector3(0.31, 0.66, 0.08), new THREE.Vector3(0.40, 0.50, 0.08)
+    ]), 16, 0.027, 8, false), materials.black);
+    hose.castShadow = true; extinguisher.add(hose);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.082, 0.23, 14), materials.black);
+    nozzle.rotation.z = Math.PI / 2; nozzle.position.set(0.42, 0.48, 0.08);
+    nozzle.castShadow = true; extinguisher.add(nozzle);
+    const nozzleRim = new THREE.Mesh(new THREE.TorusGeometry(0.080, 0.010, 6, 16), materials.black);
+    nozzleRim.rotation.y = Math.PI / 2; nozzleRim.position.set(0.528, 0.48, 0.08);
+    extinguisher.add(nozzleRim);
+
+    // Printed nameplate wrapped as a curved band, so it does not read as a flat sticker.
+    const label = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.192, 0.192, 0.34, 20, 1, true, -0.62, 1.24),
+      new THREE.MeshStandardMaterial({ map: extinguisherLabelTex, roughness: 0.62, metalness: 0.05, side: THREE.DoubleSide })
+    );
+    label.position.y = 0.46; extinguisher.add(label);
+
+    // Safety pin: yellow ring, wire and a tamper seal that hangs off it. A Group so the whole
+    // assembly disappears in one step when the "P" of P.A.S.S. is performed.
+    const pin = new THREE.Group();
+    pin.name = 'safety-pin';
+    const pinRing = new THREE.Mesh(new THREE.TorusGeometry(0.034, 0.008, 8, 18), materials.yellow);
+    pinRing.position.set(0, 0.006, 0.078); pin.add(pinRing);
+    const pinRod = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 8), materials.yellow);
+    pinRod.rotation.x = Math.PI / 2; pinRod.position.set(0, 0.006, 0.036); pin.add(pinRod);
+    const sealTag = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.075), new THREE.MeshStandardMaterial({
+      map: stickerTex(64, 96, (g, w, h) => {
+        g.fillStyle = '#d81f26'; g.fillRect(0, 0, w, h);
+        g.fillStyle = '#fff'; g.font = 'bold 15px Arial'; g.textAlign = 'center';
+        g.fillText('PULL', w / 2, 42); g.fillText('PIN', w / 2, 62);
+      }),
+      roughness: 0.9, metalness: 0, side: THREE.DoubleSide
+    }));
+    sealTag.position.set(0, -0.056, 0.084); pin.add(sealTag);
+    pin.position.set(0, 1.0, 0);
+    extinguisher.add(pin);
+
+    // Everything the streamed glTF model replaces once it has actually loaded.
+    const extinguisherParts = [body, baseRim, neck, valve, gaugeBody, gaugeFace, handle, hose, nozzle, nozzleRim, label];
+
     extinguisher.position.set(-1.8, 0, -3.2);
     scene.add(extinguisher);
     // Wall stand / mounting marker.
@@ -812,7 +1118,7 @@
     stationFace.position.set(-1.8,1.88,-3.475); scene.add(stationFace);
 
     // Aiming target indicator around the fire.
-    const targetRing = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.035, 8, 40), new THREE.MeshBasicMaterial({ color: 0x55c7e8, transparent: true, opacity: 0.8 }));
+    const targetRing = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.035, 8, 40), new THREE.MeshBasicMaterial({ color: C_ORANGE, transparent: true, opacity: 0.8 }));
     targetRing.rotation.x = Math.PI / 2;
     targetRing.position.set(2.2, 0.08, -7.0);
     scene.add(targetRing);
@@ -895,7 +1201,7 @@
     // triangles. On the headset tiers meshoptimizer's WASM simplifier builds a cheaper LOD for the
     // heavy props. Simplification only rewrites the index buffer - the vertices it still references
     // stay put - so the result is immediately usable, including as InstancedMesh geometry.
-    const PROP_DECIMATE = { desktop: 0, quest2: 0.35, quest1: 0.12 }[tierName] || 0;
+    const PROP_DECIMATE = tierPick({ desktop: 0, quest3: 0.18, quest2: 0.35, quest1: 0.12 }, 0);
     function decimateProp(geometry) {
       if (!PROP_DECIMATE || !geometry.index) return;
       const tris = geometry.index.count / 3;
@@ -1037,7 +1343,9 @@
         holder.rotation.y = 0;
         props3d.remove(holder);
         extinguisher.add(holder);
-        [body, neck, handle, hose, nozzle, label].forEach(m => { m.visible = false; });
+        // Hide the whole procedural fallback set; the pin stays so the P.A.S.S. pull gesture and
+        // its tamper seal remain tappable exactly as before.
+        extinguisherParts.forEach(m => { m.visible = false; });
       });
 
     // --- Site structures: scaffolding, fencing, hydrant, call point, pipes and services
@@ -1079,13 +1387,54 @@
     let yaw = 0, pitch = 0;
     let pointerLocked = false;
     let active = false;
+    let paused = false;
     let guided = true;
     let pickedUp = false;
     let pinRemoved = false;
     let spraying = false;
     let fireIntensity = 100;
     let supply = 100;
-    let scenarioState = 'orientation';
+    // The procedure state machine from the specification, and the fire state model that the HUD
+    // reports. Both are explicit enums so the flow can never be inferred from a pile of flags.
+    const SCENARIO = {
+      INITIALISING: 'INITIALISING',
+      INTRODUCTION: 'INTRODUCTION',
+      SCENARIO_READY: 'SCENARIO_READY',
+      FIND_EXTINGUISHER: 'FIND_EXTINGUISHER',
+      COLLECT_EXTINGUISHER: 'COLLECT_EXTINGUISHER',
+      PULL_PIN: 'PULL_PIN',
+      AIM_AT_FIRE: 'AIM_AT_FIRE',
+      SQUEEZE_HANDLE: 'SQUEEZE_HANDLE',
+      SWEEP_FIRE: 'SWEEP_FIRE',
+      ASSESSMENT: 'ASSESSMENT'
+    };
+    const FIRE = {
+      IDLE: 'IDLE', BURNING: 'BURNING', SUPPRESSED: 'SUPPRESSED',
+      EXTINGUISHED: 'EXTINGUISHED', FAILED: 'FAILED'
+    };
+    let scenarioState = SCENARIO.INITIALISING;
+    let fireState = FIRE.IDLE;
+    let lastSweepPoint = null;   // previous ground intersection of the aim ray, for sweep travel
+    // Per-criterion assessment record. Every field is set by the interaction that actually performs
+    // it, so the final score is a report of what the user did and never a random or derived number.
+    const assessment = {
+      retrieval: false,   // extinguisher collected
+      pull: false,        // safety pin removed
+      aim: false,         // nozzle held on the base of the fire
+      squeeze: false,     // discharge started while aimed
+      sweep: false,       // lateral travel across the fire base while discharging
+      extinguished: false,
+      aimSeconds: 0,      // time held on target, used to grade aim quality
+      dischargeSeconds: 0,
+      sweepTravel: 0,     // metres of lateral travel across the fire base
+      discharges: 0
+    };
+    function resetAssessment() {
+      assessment.retrieval = false; assessment.pull = false; assessment.aim = false;
+      assessment.squeeze = false; assessment.sweep = false; assessment.extinguished = false;
+      assessment.aimSeconds = 0; assessment.dischargeSeconds = 0; assessment.sweepTravel = 0;
+      assessment.discharges = 0;
+    }
     let startedAt = 0;
     let mistakes = 0;
     let retries = 0;
@@ -1117,7 +1466,7 @@
 
     const teleportMarker = new THREE.Mesh(
       new THREE.RingGeometry(0.2, 0.28, 28),
-      new THREE.MeshBasicMaterial({ color: 0x55c7e8, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: C_ORANGE, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
     );
     teleportMarker.rotation.x = -Math.PI / 2;
     teleportMarker.visible = false;
@@ -1135,7 +1484,7 @@
 
       const ray = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
-        new THREE.LineBasicMaterial({ color: 0x55c7e8, transparent: true, opacity: 0.85 })
+        new THREE.LineBasicMaterial({ color: C_ORANGE, transparent: true, opacity: 0.85 })
       );
       ray.visible = false;
       controller.userData.ray = ray;
@@ -1184,17 +1533,17 @@
       const c = xrPanelCtx, W = xrPanelCanvas.width, H = xrPanelCanvas.height;
       c.clearRect(0, 0, W, H);
       c.fillStyle = 'rgba(8,16,22,.88)'; c.fillRect(0, 0, W, H);
-      c.strokeStyle = 'rgba(85,199,232,.75)'; c.lineWidth = 5; c.strokeRect(2.5, 2.5, W - 5, H - 5);
+      c.strokeStyle = 'rgba(255,122,26,.75)'; c.lineWidth = 5; c.strokeRect(2.5, 2.5, W - 5, H - 5);
       c.textBaseline = 'alphabetic';
-      c.fillStyle = '#55c7e8'; c.font = 'bold 20px Inter, Arial, sans-serif';
+      c.fillStyle = '#ff7a1a'; c.font = 'bold 20px Inter, Arial, sans-serif';
       c.fillText(`STEP ${ui.stepNum.textContent} · RE-EL`, 24, 38);
       c.fillStyle = '#f5f8fa'; c.font = 'bold 30px Inter, Arial, sans-serif';
       wrapCanvasText(c, ui.objectiveTitle.textContent, 24, 78, W - 48, 34, 2);
       c.fillStyle = '#b7c5ce'; c.font = '20px Inter, Arial, sans-serif';
       wrapCanvasText(c, xrMessage, 24, 152, W - 48, 24, 2);
       const bars = [
-        ['FIRE', fireIntensity, '#ff765f'],
-        ['SUPPLY', supply, '#72e0a4'],
+        ['FIRE', fireIntensity, '#ff5a45'],
+        ['SUPPLY', supply, '#5fd48a'],
         ['HEAT', enhance.heat, '#ffca70']
       ];
       bars.forEach(([label, value, color], i) => {
@@ -1261,10 +1610,12 @@
 
     const xrRigOffset = new THREE.Vector3();
     function xrCommitTeleport() {
-      // Move the dolly so the player's head lands on the marker.
+      // Move the dolly so the player's head lands on the marker, unless a structure is in the way.
       xrRigOffset.set(camera.position.x, 0, camera.position.z).applyAxisAngle(worldUp, dolly.rotation.y);
-      dolly.position.x = THREE.MathUtils.clamp(teleportMarker.position.x - xrRigOffset.x, -13, 13);
-      dolly.position.z = THREE.MathUtils.clamp(teleportMarker.position.z - xrRigOffset.z, -10, 11);
+      const tx = teleportMarker.position.x - xrRigOffset.x;
+      const tz = teleportMarker.position.z - xrRigOffset.z;
+      if (!blocked(tx, tz)) { dolly.position.x = tx; dolly.position.z = tz; }
+      else showToast('That spot is blocked. Choose another landing point.');
     }
 
     let xrSnapCooldown = 0, xrPanelTimer = 0;
@@ -1291,8 +1642,7 @@
         move.set(0, 0, 0).addScaledVector(cameraForward, -forward).addScaledVector(cameraRight, strafe);
         if (move.lengthSq() > 0) {
           move.normalize().multiplyScalar(tier.moveSpeed * dt);
-          dolly.position.x = THREE.MathUtils.clamp(dolly.position.x + move.x, -13, 13);
-          dolly.position.z = THREE.MathUtils.clamp(dolly.position.z + move.z, -10, 11);
+          moveTo(dolly.position.x + move.x, dolly.position.z + move.z);
         }
       }
 
@@ -1368,11 +1718,47 @@
       ui.statusPill.style.color = colors[color] || colors.warn;
       ui.statusPill.style.background = color === 'good' ? 'rgba(114,224,164,.12)' : color === 'danger' ? 'rgba(255,118,95,.12)' : 'rgba(255,202,112,.12)';
     }
+    // The two state models are the single source of truth for the HUD readouts, so nothing else has
+    // to remember to refresh them.
+    const STATE_COLOR = { IDLE: 'var(--muted)', BURNING: 'var(--danger)', SUPPRESSED: 'var(--warn)', EXTINGUISHED: 'var(--good)', FAILED: 'var(--danger)' };
+    function setScenarioState(state) {
+      scenarioState = state;
+      ui.scenarioStateText.textContent = state;
+    }
+    function setFireState(state) {
+      fireState = state;
+      ui.fireStateText.textContent = state;
+      ui.fireStateText.style.color = STATE_COLOR[state] || 'var(--text)';
+    }
+    // The fire state model is derived from the simulated intensity, so it can never disagree with
+    // the meter beside it.
+    function updateFireState() {
+      if (!active) { if (fireState === FIRE.IDLE) return; if (fireState === FIRE.EXTINGUISHED || fireState === FIRE.FAILED) return; setFireState(FIRE.IDLE); return; }
+      if (fireIntensity <= 0) setFireState(FIRE.EXTINGUISHED);
+      else if (fireIntensity <= 60) setFireState(FIRE.SUPPRESSED);
+      else setFireState(FIRE.BURNING);
+    }
     function updateMeters() {
       ui.intensityText.textContent = `${Math.max(0, Math.round(fireIntensity))}%`;
       ui.intensityBar.style.width = `${Math.max(0, fireIntensity)}%`;
       ui.supplyText.textContent = `${Math.max(0, Math.round(supply))}%`;
       ui.supplyBar.style.width = `${Math.max(0, supply)}%`;
+      updateFireState();
+    }
+    // P.A.S.S. progress indicator: one element per step, each in one of three states.
+    const PASS_INDEX = { pull: 0, aim: 1, squeeze: 2, sweep: 3 };
+    function setPassStep(step, state) {
+      const el = passSteps[PASS_INDEX[step]];
+      if (!el) return;
+      el.classList.toggle('inprogress', state === 'inprogress');
+      el.classList.toggle('completed', state === 'completed');
+      el.querySelector('i').textContent = state === 'completed' ? 'Completed' : state === 'inprogress' ? 'In progress' : 'Not started';
+    }
+    function resetPassStrip() {
+      passSteps.forEach(el => {
+        el.classList.remove('inprogress', 'completed');
+        el.querySelector('i').textContent = 'Not started';
+      });
     }
     function showTraining() {
       ui.hud.classList.remove('hidden');
@@ -1381,14 +1767,37 @@
     }
     function setPrompt(text) { ui.prompt.innerHTML = text; }
 
+    // Escape opens the control menu instead of only dropping pointer lock, so the control reference
+    // and a pause/resume path are always reachable. The scenario is frozen while it is open.
+    function pauseSimulation() {
+      if (!active || paused) return;
+      if (!ui.result.classList.contains('hidden')) return;   // the result screen owns the screen
+      paused = true;
+      if (document.pointerLockElement) document.exitPointerLock();
+      keys.clear();
+      endSpray();
+      ui.pause.classList.remove('hidden');
+    }
+    function resumeSimulation() {
+      if (!paused) return;
+      paused = false;
+      ui.pause.classList.add('hidden');
+      renderer.domElement.requestPointerLock?.();
+    }
+
     function startSimulation(useGuided = true) {
       guided = useGuided;
       active = true;
+      paused = false;
+      ui.pause.classList.add('hidden');
       startedAt = performance.now();
       ui.welcome.classList.add('hidden');
       ui.result.classList.add('hidden');
       showTraining();
-      scenarioState = 'orientation';
+      setScenarioState(SCENARIO.SCENARIO_READY);
+      resetPassStrip();
+      resetAssessment();
+      lastSweepPoint = null;
       pickedUp = false; pinRemoved = false; spraying = false;
       fireIntensity = 100; supply = 100; mistakes = 0;
       extinguisher.position.set(-1.8, 0, -3.2);
@@ -1412,6 +1821,7 @@
       setObjective(1, 'Orient yourself', 'Look around the construction site and locate the simulated fire.');
       setPrompt('Explore the site. Approach the extinguisher station when you are ready.');
       updateMeters();
+      setScenarioState(SCENARIO.FIND_EXTINGUISHER);
     }
 
     function resetScenario() {
@@ -1421,19 +1831,93 @@
       showToast('Scenario reset. Start a new attempt.');
     }
 
+    // The proposed 100-point model from the specification. Weights are the only tuning constant;
+    // every point awarded below is driven by a recorded interaction.
+    const SCORE_WEIGHTS = { retrieval: 10, pull: 20, aim: 20, squeeze: 20, sweep: 20, completion: 10 };
+    const SCORE_LABELS = {
+      retrieval: 'Extinguisher retrieval',
+      pull: 'Pull — safety pin',
+      aim: 'Aim — base of fire',
+      squeeze: 'Squeeze — controlled discharge',
+      sweep: 'Sweep — correct coverage',
+      completion: 'Successful completion'
+    };
+    // Each criterion is graded as a fraction earned, so holding the nozzle on target or crossing the
+    // base of the fire scores higher than simply pressing the button once.
+    function scoreAttempt() {
+      const aim = Math.min(1, assessment.aimSeconds / 2.5);
+      const squeeze = Math.min(1, assessment.dischargeSeconds / 1.6);
+      const sweep = Math.min(1, assessment.sweepTravel / 2.4);
+      const parts = {
+        retrieval: assessment.retrieval ? 1 : 0,
+        pull: assessment.pull ? 1 : 0,
+        aim: assessment.pull ? aim : 0,
+        squeeze: assessment.squeeze ? squeeze : 0,
+        sweep: assessment.squeeze ? sweep : 0,
+        completion: assessment.extinguished ? 1 : 0
+      };
+      const points = {};
+      let total = 0;
+      Object.keys(SCORE_WEIGHTS).forEach(k => {
+        points[k] = Math.round(SCORE_WEIGHTS[k] * parts[k]);
+        total += points[k];
+      });
+      return { parts, points, total, aim, squeeze, sweep };
+    }
+    function describeCriterion(key, parts) {
+      const p = parts[key];
+      if (p >= 0.999) return { cls: 'ok', text: 'Complete' };
+      if (p <= 0.001) return { cls: 'miss', text: 'Missed' };
+      return { cls: 'part', text: `${Math.round(p * 100)}% of criterion` };
+    }
+
     function completeScenario(success) {
       if (!active) return;
       active = false;
       spraying = false;
+      assessment.extinguished = success;
+      setScenarioState(SCENARIO.ASSESSMENT);
       setStatus(success ? 'Scenario complete' : 'Scenario incomplete', success ? 'good' : 'danger');
       const elapsed = Math.max(0, Math.round((performance.now() - startedAt) / 1000));
-      const score = success ? Math.max(50, Math.max(60, 100 - mistakes * 10 - retries * 5) - enhance.penalty()) : Math.max(0, 40 - mistakes * 5);
-      document.getElementById('resultHeading').textContent = success ? 'Simulated fire extinguished.' : 'Try the scenario again.';
-      document.getElementById('resultScore').textContent = success ? `${score}%` : 'RETRY';
-      document.getElementById('resultScore').style.color = success ? 'var(--good)' : 'var(--warn)';
+      const result = scoreAttempt();
+
+      document.getElementById('resultHeading').textContent = success ? 'Training exercise completed.' : 'Exercise ended before the fire was out.';
+      document.getElementById('resultScore').innerHTML = `${result.total} <span>/ 100</span>`;
+      document.getElementById('resultScore').style.color = result.total >= 80 ? 'var(--good)' : result.total >= 50 ? 'var(--warn)' : 'var(--danger)';
       document.getElementById('resultCopy').textContent = success
-        ? `You completed this prototype exercise in ${elapsed} seconds. Recorded interaction errors: ${mistakes}. Alarm raised: ${enhance.alarmOn ? 'yes' : 'no'}; peak heat exposure: ${Math.round(enhance.peakHeat)}%. This is a demonstration score, not a validated competency assessment.`
-        : `The simulated fire was not extinguished. Review the prompts and try again. Recorded interaction errors: ${mistakes}. Peak heat exposure: ${Math.round(enhance.peakHeat)}%.`;
+        ? 'Every criterion below was recorded from your interactions during this attempt.'
+        : 'The simulated fire was not extinguished. The criteria below show what was recorded before the exercise ended.';
+
+      // Per-criterion checklist, in the order of the specification's table.
+      const order = ['retrieval', 'pull', 'aim', 'squeeze', 'sweep', 'completion'];
+      ui.resultCriteria.innerHTML = order.map(k => {
+        const { cls, text } = describeCriterion(k, result.parts);
+        return `<li class="${cls}"><b>${SCORE_LABELS[k]}</b><em>${text} · ${result.points[k]}/${SCORE_WEIGHTS[k]}</em></li>`;
+      }).join('');
+
+      ui.resultStats.innerHTML = [
+        ['Time taken', `${elapsed}s`],
+        ['Fire extinguished', success ? 'Yes' : 'No'],
+        ['Alarm raised', enhance.alarmOn ? 'Yes' : 'No'],
+        ['Peak heat exposure', `${Math.round(enhance.peakHeat)}%`],
+        ['Recorded errors', `${mistakes}`],
+        ['Attempts', `${retries + 1}`]
+      ].map(([label, value]) => `<div>${label}<strong>${value}</strong></div>`).join('');
+
+      // Areas to improve, derived from the criteria that were not fully earned.
+      const gaps = [];
+      if (result.parts.retrieval < 1) gaps.push('<b>Extinguisher retrieval:</b> collect the extinguisher from the station before attempting anything else.');
+      if (result.parts.pull < 1) gaps.push('<b>Pull:</b> remove the safety pin before trying to discharge.');
+      if (result.parts.aim < 1) gaps.push('<b>Aim:</b> hold the nozzle on the base of the fire, not the flames above it — the aim point was only on target for ' + assessment.aimSeconds.toFixed(1) + ' s.');
+      if (result.parts.squeeze < 1) gaps.push('<b>Squeeze:</b> keep the handle squeezed in one controlled discharge rather than short taps.');
+      if (result.parts.sweep < 1) gaps.push('<b>Sweep:</b> move the nozzle side to side across the base of the fire — ' + assessment.sweepTravel.toFixed(1) + ' m of lateral coverage was recorded.');
+      if (result.parts.completion < 1) gaps.push('<b>Completion:</b> the fire was not extinguished within the available discharge supply.');
+      if (!enhance.alarmOn) gaps.push('<b>Site procedure:</b> raise the alarm at the manual call point before fighting a fire.');
+      ui.resultImprove.innerHTML = gaps.length
+        ? '<b>Areas to improve</b><br>' + gaps.join('<br>')
+        : '<b>Nothing outstanding.</b> Every criterion was met. This remains a prototype exercise, not a validated competency assessment.';
+
+      setFireState(success ? FIRE.EXTINGUISHED : FIRE.FAILED);
       ui.result.classList.remove('hidden');
       if (document.pointerLockElement) document.exitPointerLock();
     }
@@ -1447,10 +1931,13 @@
       if (pinRemoved) return;
       pinRemoved = true;
       pin.visible = false;
-      scenarioState = 'aim';
+      assessment.pull = true;
+      setPassStep('pull', 'completed');
+      setPassStep('aim', 'inprogress');
       setObjective(3, 'Aim at the target', 'Direct the nozzle toward the simulated fire before discharging.');
       setPrompt('Pin removed. Face the fire and place the crosshair on the target area.');
       showToast('Pin interaction completed.');
+      setScenarioState(SCENARIO.AIM_AT_FIRE);
     }
 
     function collectExtinguisher() {
@@ -1467,10 +1954,12 @@
       extinguisher.visible = false;
       // Desktop draws the extinguisher in front of the camera; XR re-parents it to a controller.
       extinguisher.scale.setScalar(1);
-      scenarioState = 'pin';
+      assessment.retrieval = true;
+      setPassStep('pull', 'inprogress');
       setObjective(2, 'Prepare the extinguisher', 'Collect the extinguisher and complete the guided equipment interaction.');
       setPrompt('Extinguisher collected. Press <span class="key">E</span> again to simulate removing the safety pin.');
       showToast('Extinguisher collected.');
+      setScenarioState(SCENARIO.PULL_PIN);
     }
 
     function fireDistance() {
@@ -1491,7 +1980,7 @@
     }
 
     function beginSpray() {
-      if (!active || !pickedUp) return;
+      if (!active || paused || !pickedUp) return;
       if (!pinRemoved) {
         mistakes++;
         showToast('Complete the pin interaction first.');
@@ -1504,16 +1993,20 @@
         return;
       }
       spraying = true;
-      scenarioState = 'discharge';
+      assessment.squeeze = true;
+      assessment.discharges++;
+      setPassStep('aim', 'completed');
+      setPassStep('squeeze', 'inprogress');
       setObjective(4, 'Apply the simulated discharge', 'Keep the nozzle directed at the target area while the effect is active.');
       setPrompt('Discharging. Keep aiming at the target to reduce simulated fire intensity.');
+      setScenarioState(SCENARIO.SQUEEZE_HANDLE);
     }
     function endSpray() {
       spraying = false;
       sprayParticles.forEach(p => p.visible = false);
       if (active && fireIntensity > 0 && pinRemoved) {
-        scenarioState = 'aim';
         setPrompt('Adjust your aim toward the fire and hold the left mouse button to continue.');
+        if (scenarioState === SCENARIO.SQUEEZE_HANDLE || scenarioState === SCENARIO.SWEEP_FIRE) setScenarioState(SCENARIO.AIM_AT_FIRE);
       }
     }
 
@@ -1535,28 +2028,33 @@
     function onKeyDown(e) {
       if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
       keys.add(e.code);
-      if (!active || e.repeat) return;
+      if (e.repeat) return;
+      // Escape drives the pause menu itself, so it is handled before the paused guard.
+      if (e.code === 'Escape') {
+        if (paused) resumeSimulation();
+        else pauseSimulation();
+        return;
+      }
+      if (!active || paused) return;
       if (e.code === 'KeyE') {
         if (!pickedUp) collectExtinguisher();
         else if (!pinRemoved) removePin();
         else showToast('Aim at the fire and hold the left mouse button to discharge.');
       }
       if (e.code === 'KeyR') resetScenario();
-      if (e.code === 'Escape') {
-        if (document.pointerLockElement) document.exitPointerLock();
-      }
     }
     function onKeyUp(e) { keys.delete(e.code); }
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     renderer.domElement.addEventListener('click', () => {
+      if (paused) return;
       if (active && !pointerLocked && !ui.result.classList.contains('hidden')) return;
       if (active && !pointerLocked) renderer.domElement.requestPointerLock?.();
     });
     document.addEventListener('pointerlockchange', () => { pointerLocked = document.pointerLockElement === renderer.domElement; });
     document.addEventListener('mousemove', e => {
-      if (!pointerLocked || !active) return;
+      if (!pointerLocked || !active || paused) return;
       yaw -= e.movementX * 0.0021;
       pitch -= e.movementY * 0.0018;
       pitch = Math.max(-1.15, Math.min(1.15, pitch));
@@ -1572,6 +2070,12 @@
     document.getElementById('guidedBtn').addEventListener('click', () => startSimulation(true));
     document.getElementById('restartBtn').addEventListener('click', resetScenario);
     document.getElementById('againBtn').addEventListener('click', resetScenario);
+    document.getElementById('resumeBtn').addEventListener('click', resumeSimulation);
+    document.getElementById('pauseRestartBtn').addEventListener('click', () => {
+      ui.pause.classList.add('hidden');
+      paused = false;
+      resetScenario();
+    });
     document.getElementById('closeResultBtn').addEventListener('click', () => {
       ui.result.classList.add('hidden');
       active = true;
@@ -1596,8 +2100,8 @@
       if (keys.has('KeyA') || keys.has('ArrowLeft')) move.sub(cameraRight);
       if (move.lengthSq() > 0) {
         move.normalize().multiplyScalar(tier.moveSpeed * dt);
-        dolly.position.x = THREE.MathUtils.clamp(dolly.position.x + move.x, -13, 13);
-        dolly.position.z = THREE.MathUtils.clamp(dolly.position.z + move.z, -10, 11);
+        // Object-level collision: slide along structures rather than walking through them.
+        moveTo(dolly.position.x + move.x, dolly.position.z + move.z);
         camera.position.y = 1.7;
       }
     }
@@ -1636,6 +2140,33 @@
       fireIntensity = Math.max(0, fireIntensity - dt * 17 * enhance.efficiency());
       supply = Math.max(0, supply - dt * 13);
       updateMeters();
+      // Record what the discharge is actually achieving: time held on the base of the fire and the
+      // lateral distance the aim point travels across it. Both feed the weighted assessment, and
+      // the sweep step only completes once the nozzle has genuinely crossed the base.
+      if (isAimingAtFire()) {
+        assessment.aim = true;
+        assessment.aimSeconds += dt;
+        assessment.dischargeSeconds += dt;
+        const dir = getAimDirection();
+        if (dir.y < -0.06) {
+          const hit = cameraWorld.clone().addScaledVector(dir, -cameraWorld.y / dir.y);
+          if (lastSweepPoint && Math.abs(hit.x - 2.2) < 2.6) {
+            assessment.sweepTravel = Math.min(6, assessment.sweepTravel + Math.abs(hit.x - lastSweepPoint.x));
+          }
+          lastSweepPoint = hit;
+        }
+        if (assessment.sweepTravel >= 2.4) {
+          if (!assessment.sweep) { assessment.sweep = true; showToast('Sweep coverage recorded.'); }
+          setPassStep('sweep', 'completed');
+          setPassStep('squeeze', 'completed');
+          if (scenarioState === SCENARIO.SQUEEZE_HANDLE) setScenarioState(SCENARIO.SWEEP_FIRE);
+        } else {
+          setPassStep('sweep', 'inprogress');
+          if (scenarioState === SCENARIO.AIM_AT_FIRE) setScenarioState(SCENARIO.SQUEEZE_HANDLE);
+        }
+      } else {
+        lastSweepPoint = null;
+      }
       fireLight.intensity = 0.5 + fireIntensity * 0.045;
       flames.forEach((f, i) => {
         const scale = Math.max(0.03, fireIntensity / 100);
@@ -1663,9 +2194,14 @@
         f.mesh.scale.x = f.baseScale * (0.86 + Math.sin(t * 9 + f.phase) * 0.12);
         f.mesh.scale.z = f.baseScale * (0.86 + Math.cos(t * 8 + f.phase) * 0.12);
         f.mesh.rotation.z = Math.sin(t * 3 + f.phase) * 0.12;
-        f.mesh.position.y = 1.0 + f.h * 0.48 + Math.sin(t * 7 + f.phase) * 0.09;
+        f.mesh.position.y = 0.95 + f.h * 0.48 + Math.sin(t * 7 + f.phase) * 0.09;
       });
-      fireLight.intensity = (fireIntensity / 100) * (4.5 + Math.sin(t * 11) * 0.6);
+      // Drive the flame shader's flicker, and let the fire light wander slightly the way a real
+      // fire does instead of pulsing on one sine.
+      flameMaterials.forEach(m => { m.uniforms.uTime.value = t; });
+      const flick = 1 + Math.sin(t * 10.7) * 0.09 + Math.sin(t * 23.3 + 1.7) * 0.05 + Math.sin(t * 4.1) * 0.06;
+      fireLight.intensity = (fireIntensity / 100) * 5.2 * flick;
+      fireLight.position.set(2.2 + Math.sin(t * 5.3) * 0.16, 1.95 + Math.sin(t * 7.9) * 0.12, -7 + Math.cos(t * 6.1) * 0.14);
       targetRing.material.opacity = 0.55 + Math.sin(t * 3) * 0.2;
     }
 
@@ -1675,6 +2211,9 @@
       const xr = renderer.xr.isPresenting;
       if (!pickedUp) {
         const close = distExt < 4.1;
+        // FIND_EXTINGUISHER becomes COLLECT_EXTINGUISHER once the user is inside interaction range.
+        const want = close ? SCENARIO.COLLECT_EXTINGUISHER : SCENARIO.FIND_EXTINGUISHER;
+        if (scenarioState !== want && (scenarioState === SCENARIO.FIND_EXTINGUISHER || scenarioState === SCENARIO.COLLECT_EXTINGUISHER)) setScenarioState(want);
         setPrompt(close
           ? 'Press <span class="key">E</span> to collect the extinguisher.'
           : 'Locate the extinguisher station. Move with <span class="key">W A S D</span> and look with your mouse.');
@@ -1684,6 +2223,7 @@
         if (xr) xrMessage = 'Squeeze the grip and pull the controller in to remove the pin.';
       } else if (fireIntensity > 0 && !spraying) {
         const aligned = isAimingAtFire();
+        if (aligned && scenarioState === SCENARIO.AIM_AT_FIRE) setPassStep('aim', 'inprogress');
         setPrompt(aligned
           ? 'Target aligned. Hold the left mouse button to simulate discharge.'
           : 'Face the fire and align the crosshair with the target area.');
@@ -1835,9 +2375,10 @@
       const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), beaconMat); beacon.position.set(-0.55, 1.68, -3.5); scene.add(beacon);
       const callLight = new THREE.PointLight(0xff2a1a, 0, 9, 2); callLight.position.copy(beacon.position); scene.add(callLight);
 
-      // --- Site workers: rigged, animated glTF characters (Mixamo rigs) who evacuate to the
-      // assembly point when the alarm is raised. Each one is a skeletonClone() of a shared source
-      // so three characters cost two downloads, and an AnimationMixer crossfades idle <-> walk.
+      // --- Site workers: rigged, animated glTF characters wearing construction PPE, patrolling the
+      // site so it reads as a live site rather than a diorama, and evacuating to the assembly point
+      // once the alarm is raised. Each worker is a skeletonClone() of a shared source so three
+      // characters cost two downloads, and the mixer crossfades idle <-> walk <-> run.
       const workerUrls = [
         `${ASSET_CDN.samples}Soldier.glb`,
         `${ASSET_CDN.samples}Xbot.glb`,
@@ -1848,9 +2389,118 @@
         if (!workerSource.has(url)) workerSource.set(url, new Promise(res => gltfLoader.load(url, res, undefined, () => res(null))));
         return workerSource.get(url);
       }
-      const workers = [[-4.2, -1.2, 8.8, 7.6], [6.8, -1.6, 10.2, 6.6], [0.2, -9.0, 9.4, 8.8]].map(([x, z, dx, dz], i) => {
+
+      // One PPE kit shared by the whole crew, so the three workers read as one crew: fluorescent
+      // hi-vis vest with retro-reflective banding, industrial-yellow shell helmet, leather mitten
+      // gloves and reflective bands over the boots.
+      const ppe = {
+        vest: trackLit(new THREE.MeshStandardMaterial({ color: 0xd6e800, roughness: 0.7, metalness: 0.02, side: THREE.DoubleSide })),
+        band: trackLit(new THREE.MeshStandardMaterial({ color: 0xe4eaee, roughness: 0.3, metalness: 0.6, side: THREE.DoubleSide })),
+        helmet: trackLit(new THREE.MeshStandardMaterial({ color: 0xffc21a, roughness: 0.32, metalness: 0.1 })),
+        glove: trackLit(new THREE.MeshStandardMaterial({ color: 0x8a5a2e, roughness: 0.85, metalness: 0.03 }))
+      };
+      const ppePart = (geo, material) => {
+        const m = new THREE.Mesh(geo, material);
+        m.castShadow = true; m.receiveShadow = true;
+        return m;
+      };
+      const helmetGeo = new THREE.SphereGeometry(0.108, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55);
+      const helmetRimGeo = new THREE.TorusGeometry(0.106, 0.013, 6, 22);
+      const helmetPeakGeo = new THREE.CylinderGeometry(0.109, 0.109, 0.014, 16, 1, false, -0.6, 1.2);
+      const vestShellGeo = new THREE.CylinderGeometry(0.205, 0.178, 0.44, 18, 1, true);
+      const vestBandGeo = new THREE.CylinderGeometry(0.21, 0.2, 0.05, 18, 1, true);
+      const gloveGeo = new THREE.CapsuleGeometry(0.041, 0.05, 4, 12);
+      const bootBandGeo = new THREE.CylinderGeometry(0.062, 0.068, 0.07, 14, 1, true);
+
+      // A hard hat: dome, wrap-around rim and a shallow frontal peak, so the silhouette is a helmet
+      // rather than a bowl. Origin sits on the brim plane; the shell rises from it.
+      function buildHelmet() {
+        const g = new THREE.Group();
+        const dome = ppePart(helmetGeo, ppe.helmet);
+        dome.scale.set(1, 1.0, 1.08); dome.position.y = 0.008; g.add(dome);
+        const rim = ppePart(helmetRimGeo, ppe.helmet);
+        rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1.08, 1); g.add(rim);
+        const peak = ppePart(helmetPeakGeo, ppe.helmet);
+        peak.scale.set(1, 1, 1.32); peak.position.y = -0.004; g.add(peak);
+        return g;
+      }
+      // Hi-vis vest: an elliptical shell over the torso with two reflective bands.
+      function buildVest() {
+        const g = new THREE.Group();
+        g.add(ppePart(vestShellGeo, ppe.vest));
+        [-0.12, 0.05].forEach(y => {
+          const band = ppePart(vestBandGeo, ppe.band);
+          band.position.y = y; g.add(band);
+        });
+        // Flattened across the depth axis: a torso is an ellipse, not a tube.
+        g.scale.z = 0.62;
+        return g;
+      }
+
+      // Dresses a loaded rig. The kit is authored in metres, which is valid because the model has
+      // just been normalised to 1.78 m, and it is anchored to the rig's own bones where they exist
+      // (hips/head/hands/feet) and to the bounding box otherwise, so one kit fits both characters.
+      function dressWorker(g, model) {
+        g.updateWorldMatrix(true, true);
+        const bones = new Map();
+        model.traverse(o => { if (o.isBone) bones.set(o.name.toLowerCase(), o); });
+        // Prefer the bone whose name *ends* with the keyword and is otherwise shortest, so
+        // mixamorigHead wins over mixamorigHeadTop_End.
+        const bone = key => {
+          let best = null;
+          bones.forEach((b, name) => {
+            if (!name.endsWith(key)) return;
+            if (!best || name.length < best.name.length) best = b;
+          });
+          return best;
+        };
+        const gInv = g.matrixWorld.clone().invert();
+        const toG = v => v.clone().applyMatrix4(gInv);
+        // Orientation of a bone expressed in the worker's own frame, so a glove or boot band
+        // inherits the limb's direction instead of a world axis.
+        const gQuatInv = g.getWorldQuaternion(new THREE.Quaternion()).invert();
+        const boneQuat = b => gQuatInv.clone().multiply(b.getWorldQuaternion(new THREE.Quaternion()));
+        const scratch = new THREE.Vector3();
+        const anchors = { hips: null, head: null, leftHand: null, rightHand: null, leftFoot: null, rightFoot: null };
+        ['hips', 'head', 'lefthand', 'righthand', 'leftfoot', 'rightfoot'].forEach((k, i) => {
+          const key = Object.keys(anchors)[i];
+          const b = bone(k);
+          anchors[key] = b ? { p: toG(b.getWorldPosition(scratch.set(0, 0, 0))), q: boneQuat(b) } : null;
+        });
+
+        const helmet = buildHelmet();
+        helmet.position.set(anchors.head ? anchors.head.p.x : 0, 1.68, anchors.head ? anchors.head.p.z : 0);
+        g.add(helmet);
+
+        const vest = buildVest();
+        const torso = anchors.hips || anchors.head;
+        vest.position.set(torso ? torso.p.x : 0, 1.24, torso ? torso.p.z : 0);
+        g.add(vest);
+
+        [['leftHand', -0.03], ['rightHand', -0.03]].forEach(([key, lift]) => {
+          const a = anchors[key];
+          if (!a) return;
+          const glove = ppePart(gloveGeo, ppe.glove);
+          glove.position.copy(a.p).add(new THREE.Vector3(0, lift, 0).applyQuaternion(a.q));
+          glove.quaternion.copy(a.q);
+          g.add(glove);
+        });
+        [['leftFoot'], ['rightFoot']].forEach(([key]) => {
+          const a = anchors[key];
+          if (!a) return;
+          const band = ppePart(bootBandGeo, ppe.band);
+          band.position.copy(a.p); band.quaternion.copy(a.q);
+          g.add(band);
+        });
+      }
+
+      const workers = [
+        { home: [-4.2, -1.2], spin: 0.4, route: [[-5.8, 1.6], [-2.4, -3.2]], dest: [8.8, 7.6] },
+        { home: [6.8, -1.6], spin: 2.6, route: [[6.0, 2.0], [8.4, -3.8]], dest: [10.2, 6.6] },
+        { home: [0.2, -9.0], spin: 1.2, route: [[-1.8, -8.0], [2.6, -9.8]], dest: [9.4, 8.8] }
+      ].map((cfg, i) => {
         const g = new THREE.Group(); g.name = `worker-${i}`;
-        add(g, x, 0, z, rnd(0, 6));
+        add(g, cfg.home[0], 0, cfg.home[1], cfg.spin);
         // A contact shadow travels with the character: the shadow map alone cannot resolve the few
         // centimetres where the boots meet the slab, and on Quest it is the only grounding the
         // worker gets at a distance.
@@ -1860,12 +2510,18 @@
         disc.castShadow = false; disc.receiveShadow = false; disc.renderOrder = 2;
         g.add(disc);
         const w = {
-          g, i, blend: 0, mixer: null, walk: null, idle: null, moving: false,
-          dest: new THREE.Vector3(dx, 0, dz), home: new THREE.Vector3(x, 0, z)
+          g, i, blend: 0, runAmt: 0, mixer: null, walk: null, run: null, idle: null,
+          moving: false, running: false, mode: 'patrol', leg: 0, wait: rnd(0.4, 2.4),
+          route: cfg.route.map(([x, z]) => new THREE.Vector3(x, 0, z)),
+          dest: new THREE.Vector3(cfg.dest[0], 0, cfg.dest[1]),
+          home: new THREE.Vector3(cfg.home[0], 0, cfg.home[1])
         };
         w.reset = () => {
-          g.position.copy(w.home); g.rotation.y = 0; w.blend = 0;
+          g.position.copy(w.home); g.rotation.y = cfg.spin;
+          w.blend = 0; w.runAmt = 0; w.mode = 'patrol'; w.leg = 0; w.wait = rnd(0.4, 2.4);
+          w.moving = false; w.running = false;
           if (w.walk) w.walk.weight = 0;
+          if (w.run) w.run.weight = 0;
           if (w.idle) w.idle.weight = 1;
         };
         workerGltf(workerUrls[i]).then(gltf => {
@@ -1877,15 +2533,21 @@
           });
           const bb = new THREE.Box3().setFromObject(model);
           const h = bb.max.y - bb.min.y;
-          if (h > 0.2) { const s = 1.78 / h; model.scale.setScalar(s); model.position.y = -bb.min.y * s; }
+          const normalised = h > 0.2;
+          if (normalised) { const s = 1.78 / h; model.scale.setScalar(s); model.position.y = -bb.min.y * s; }
           g.add(model);
           csmRegister(model);
+          // The PPE is only metric once the rig has been normalised, so a model that reports no
+          // usable bounds is left undressed rather than wearing a badly-scaled kit.
+          if (normalised) dressWorker(g, model);
           const clips = gltf.animations || [];
           const find = names => clips.find(c => names.some(n => c.name.toLowerCase().includes(n)));
           w.mixer = new THREE.AnimationMixer(model);
-          const walkClip = find(['walk', 'run']) || clips[0];
-          const idleClip = find(['idle', 'breathing', 'stand']) || clips[0];
+          const walkClip = find(['walk']) || clips[0];
+          const runClip = find(['run', 'jog']) || walkClip;
+          const idleClip = find(['idle', 'breathing', 'stand', 'agree', 'sneak']) || clips[0];
           if (walkClip) { w.walk = w.mixer.clipAction(walkClip); w.walk.play(); w.walk.weight = 0; }
+          if (runClip && runClip !== walkClip) { w.run = w.mixer.clipAction(runClip); w.run.play(); w.run.weight = 0; }
           if (idleClip) { w.idle = w.mixer.clipAction(idleClip); w.idle.play(); w.idle.weight = 1; }
         });
         return w;
@@ -2163,7 +2825,7 @@
       // vertex shader, so the CPU cost is one uniform write per frame, and the whole layer is a
       // single draw call - the same order as one particle pool, so it stays on every tier.
       const dustTex = radialTex([[0, 'rgba(255,250,235,1)'], [0.4, 'rgba(255,246,220,0.5)'], [1, 'rgba(255,244,214,0)']]);
-      const dustCount = { desktop: 320, quest2: 180, quest1: 96 }[tierName] || 320;
+      const dustCount = tierPick({ desktop: 320, quest3: 240, quest2: 180, quest1: 96 }, 320);
       const dustGeo = new THREE.BufferGeometry();
       {
         const pos = new Float32Array(dustCount * 3), seed = new Float32Array(dustCount);
@@ -2586,19 +3248,46 @@
         } else { callLight.intensity = 0; beaconMat.emissiveIntensity = 0.2; }
         workers.forEach(w => {
           if (!w.mixer) return;
-          if (alarmOn) {
-            const dx = w.dest.x - w.g.position.x, dz = w.dest.z - w.g.position.z, dist = Math.hypot(dx, dz);
-            if (dist > 0.25) {
-              w.g.position.x += dx / dist * 1.7 * dt; w.g.position.z += dz / dist * 1.7 * dt;
-              w.g.rotation.y = Math.atan2(dx, dz);
-              w.moving = true;
-            } else w.moving = false;
-          } else w.moving = false;
-          // Idle <-> walk is a weight crossfade on two always-playing actions.
+          w.moving = false;
+          let target = null, speed = 0;
+          if (alarmOn && active) {
+            // Alarm raised: drop what they are doing and head for the assembly point at a run.
+            w.mode = 'evacuate';
+            w.running = true;
+            target = w.dest; speed = 2.3;
+          } else {
+            w.running = false;
+            if (w.mode !== 'patrol') { w.mode = 'patrol'; w.leg = 0; w.wait = 0.6; }
+            if (w.wait > 0) {
+              // Standing at a waypoint for a moment, which is what keeps the site feeling staffed.
+              w.wait -= dt;
+            } else {
+              const p = w.route[w.leg];
+              const dx = p.x - w.g.position.x, dz = p.z - w.g.position.z;
+              if (Math.hypot(dx, dz) < 0.22) { w.leg = (w.leg + 1) % w.route.length; w.wait = rnd(1.4, 3.4); }
+              else { target = p; speed = 1.05; }
+            }
+          }
+          if (target) {
+            const dx = target.x - w.g.position.x, dz = target.z - w.g.position.z;
+            const d = Math.hypot(dx, dz) || 1;
+            w.g.position.x += dx / d * speed * dt;
+            w.g.position.z += dz / d * speed * dt;
+            // Ease the facing rather than snapping it, so a turn reads as a turn.
+            const want = Math.atan2(dx, dz);
+            let delta = want - w.g.rotation.y;
+            delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+            w.g.rotation.y += delta * Math.min(1, dt * 6);
+            w.moving = true;
+          }
+          // Idle <-> walk <-> run is a weight crossfade on always-playing actions.
           w.blend += ((w.moving ? 1 : 0) - w.blend) * Math.min(1, dt * 6);
-          if (w.walk) w.walk.weight = w.blend;
+          w.runAmt += ((w.running ? 1 : 0) - w.runAmt) * Math.min(1, dt * 5);
+          const runW = w.run ? w.blend * w.runAmt : 0;
           if (w.idle) w.idle.weight = 1 - w.blend;
-          w.mixer.update(dt * (w.moving ? 1.25 : 1));
+          if (w.walk) w.walk.weight = w.blend - runW;
+          if (w.run) w.run.weight = runW;
+          w.mixer.update(dt * (1 + w.runAmt * 0.45));
         });
 
         // Camera and held-equipment realism: head bob, discharge shake, sway/recoil.
@@ -2633,7 +3322,6 @@
 
       return {
         update, efficiency, composer, depthPass,
-        penalty: () => (alarmOn ? 0 : 10) + (peakHeat > 70 ? 5 : 0),
         resize() { if (composer) composer.setSize(innerWidth, innerHeight); resizeDepthRT(); updateParticleScale(); },
         heatEffect,
         get alarmOn() { return alarmOn; },
@@ -2648,12 +3336,16 @@
       const t = clock.elapsedTime;
       camera.getWorldPosition(cameraWorld);
       camera.getWorldDirection(cameraDir);
-      updateMovement(dt);
-      updateXR(dt);
-      updateExtinguisher();
-      updateSpray(dt, t);
+      if (!paused) {
+        updateMovement(dt);
+        updateXR(dt);
+        updateExtinguisher();
+        updateSpray(dt, t);
+        updateGuidance();
+      }
+      // Ambient motion keeps running while paused, so the scene still reads as a live site even
+      // though every score-relevant interaction is frozen.
       animateEnvironment(t);
-      updateGuidance();
       enhance.update(dt, t);
       if (csm) csm.update();
       // Soft particles fade against the scene depth, so the desktop tier renders a depth prepass
