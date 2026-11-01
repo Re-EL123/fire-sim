@@ -126,6 +126,18 @@
       letter-spacing: .12em !important; text-transform: uppercase !important; text-decoration: none !important; text-align: center !important;
     }
     #VRButton:hover { border-color: var(--accent) !important; background: rgba(255,122,26,.16) !important; }
+    /* Boot gate: an opaque cover held over the whole app until the models, the PBR textures and the
+       HDRI environment have all arrived. Without it the first seconds show unlit, untextured
+       geometry, which reads as a dark site that gradually fades in. */
+    .boot-screen { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 42%, #16222c 0%, #0a1016 72%); transition: opacity .55s ease; }
+    .boot-screen.done { opacity: 0; pointer-events: none; }
+    .boot-inner { width: min(340px, calc(100vw - 60px)); text-align: center; }
+    .boot-logo { margin: 0 auto 15px; width: 42px; height: 42px; font-size: 20px; }
+    .boot-title { font-size: 12px; font-weight: 800; letter-spacing: .2em; }
+    .boot-sub { margin-top: 7px; font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+    .boot-track { margin: 20px auto 11px; height: 4px; border-radius: 999px; background: rgba(255,255,255,.12); overflow: hidden; }
+    .boot-track i { display: block; height: 100%; width: 6%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .3s ease; }
+    .boot-note { font-size: 10px; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
     @media (max-width: 620px) {
       .topbar { top: 10px; left: 10px; right: 10px; }
       .brand { padding: 8px 10px; }
@@ -145,6 +157,16 @@
 <body>
   <div id="scene" aria-label="Interactive construction site simulation"></div>
   <div class="vignette"></div>
+
+  <div class="boot-screen" id="bootScreen">
+    <div class="boot-inner">
+      <div class="logo boot-logo">R</div>
+      <div class="boot-title">RE-EL SIMULATIONS</div>
+      <div class="boot-sub">Preparing the construction site…</div>
+      <div class="boot-track"><i id="bootBar"></i></div>
+      <div class="boot-note" id="bootNote">Loading models, textures and site lighting</div>
+    </div>
+  </div>
 
   <header class="topbar">
     <div class="brand">
@@ -498,11 +520,70 @@
     heroLoader.setKTX2Loader(ktx2Loader);
     heroLoader.setMeshoptDecoder(MeshoptDecoder);
 
-    const texLoader = new THREE.TextureLoader();
+    // Every image and environment load shares one manager so the boot gate below can see the whole
+    // texture workload. The two glTF managers stay separate because each needs its own URL
+    // modifier, and all three are watched by the gate.
+    const texManager = new THREE.LoadingManager();
+    const texLoader = new THREE.TextureLoader(texManager);
     texLoader.setCrossOrigin('anonymous');
-    const hdrLoader = new RGBELoader();
-    const exrLoader = new EXRLoader();
+    const hdrLoader = new RGBELoader(texManager);
+    const exrLoader = new EXRLoader(texManager);
     const MAX_ANISOTROPY = renderer.capabilities.getMaxAnisotropy();
+
+    // --- Boot gate -------------------------------------------------------------------------
+    // The site is only revealed once the props, the PBR texture sets and the HDRI environment have
+    // finished streaming in. Until the environment map lands the image-based lighting is missing,
+    // so the scene renders dark and then slowly lifts; holding an opaque cover avoids showing that.
+    // Crucially the reveal also waits for the loads to go quiet, because each prop pulls its
+    // textures only after its glTF arrives, which would otherwise trip the gate too early.
+    const bootScreen = document.getElementById('bootScreen');
+    const bootBar = document.getElementById('bootBar');
+    const bootNote = document.getElementById('bootNote');
+    const BOOT_MANAGERS = { models: modelManager, hero: heroManager, textures: texManager };
+    const BOOT_KEYS = Object.keys(BOOT_MANAGERS);
+    const bootStarted = performance.now();
+    const QUIET_MS = 900, GIVE_UP_MS = 30000;
+    let bootActivity = bootStarted, bootHidden = false, bootTimer = 0;
+
+    const bootTouch = () => { bootActivity = performance.now(); };
+    BOOT_KEYS.forEach(k => {
+      const m = BOOT_MANAGERS[k];
+      m.onStart = bootTouch;
+      m.onProgress = bootTouch;
+      m.onLoad = bootTouch;
+    });
+
+    function bootFinish() {
+      if (bootHidden) return;
+      bootHidden = true;
+      clearInterval(bootTimer);
+      // Hold for two frames so the first fully-lit frame is the one that gets revealed.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (bootBar) bootBar.style.width = '100%';
+        bootScreen.classList.add('done');
+        setTimeout(() => bootScreen.classList.add('hidden'), 700);
+      }));
+    }
+
+    function bootTick() {
+      if (bootHidden) return;
+      let sum = 0, allLoaded = true;
+      BOOT_KEYS.forEach(k => {
+        const m = BOOT_MANAGERS[k];
+        // A manager that was never handed any work is complete by definition.
+        const frac = m.itemsTotal === 0 ? 1 : Math.min(1, m.itemsLoaded / m.itemsTotal);
+        sum += frac;
+        if (frac < 1) allLoaded = false;
+      });
+      if (bootBar) bootBar.style.width = `${Math.max(6, Math.round(sum / BOOT_KEYS.length * 100))}%`;
+      if (bootNote) {
+        const loaded = BOOT_KEYS.reduce((n, k) => n + BOOT_MANAGERS[k].itemsLoaded, 0);
+        bootNote.textContent = loaded ? `${loaded} assets loaded` : 'Loading models, textures and site lighting';
+      }
+      const quiet = performance.now() - bootActivity > QUIET_MS;
+      if ((allLoaded && quiet) || performance.now() - bootStarted > GIVE_UP_MS) bootFinish();
+    }
+    bootTimer = setInterval(bootTick, 200);
 
     // Quest tiers get 512px PBR maps (the roadmap's texture budget). The CDN only publishes
     // 1K sets, so they are downsampled once after decode.
