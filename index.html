@@ -2264,7 +2264,10 @@
       showStage(4, 'Aim at the base');
     }
     // Tween the pin off the valve and let it drop, then hide it. Runs on the paint frame so the tiny
-    // animation costs nothing on the headset tiers.
+    // animation costs nothing on the headset tiers. Three beats: the tamper seal snaps, the pin is
+    // drawn straight out along its own rod, then it is released and tumbles away under gravity.
+    const PIN_DUR = 0.72;    // snap, draw and release
+    const PIN_TAIL = 1.30;   // the free hand keeps hold of the ring while it is walked away
     let pinPullT = -1;
     const pinRestPos = pin.position.clone();
     const pinRestRot = pin.rotation.clone();
@@ -2280,19 +2283,29 @@
     function updatePinAnimation(dt) {
       if (pinPullT < 0) return;
       pinPullT += dt;
-      const k = Math.min(1, pinPullT / 0.45);
-      const ease = 1 - Math.pow(1 - k, 3);
-      // Slide out of the valve toward the front of the unit, then fall away and let go.
-      const drop = Math.max(0, (k - 0.5) / 0.5) ** 2;
-      pin.position.x = pinRestPos.x - 0.12 * ease;
-      pin.position.y = pinRestPos.y - 0.42 * drop;
-      pin.position.z = pinRestPos.z + 0.26 * ease;
-      pin.rotation.z = -1.7 * ease;
-      pin.rotation.y = 0.5 * ease;
-      if (k >= 1) {
-        pin.visible = false;
-        pinPullT = -1;
-      }
+      const k = Math.min(1, pinPullT / PIN_DUR);
+      // The seal resisting, then the pin coming free of the valve. The seal gives at a quarter of the
+      // beat, which leaves the free hand time to arrive on the ring and close on it first - snapping
+      // the pin out from under a hand that is still reaching reads as a coincidence rather than a
+      // pull.
+      const snap = Math.min(1, k / 0.25);
+      const draw = k < 0.25 ? 0 : (k - 0.25) / 0.75;
+      const eased = 1 - Math.pow(1 - draw, 2.2);
+      // Let go just before the rod is fully clear, so the pin falls out of the hand rather than
+      // sliding all the way and then blinking out of existence.
+      const drop = Math.max(0, (draw - 0.55) / 0.45) ** 2;
+      // The rod runs out through the front face of the valve, so the pin is drawn back towards the
+      // operator - which is the direction it is pulled in for real.
+      pin.position.z = pinRestPos.z + 0.30 * eased;
+      pin.position.y = pinRestPos.y + 0.018 * snap - 0.60 * drop;
+      pin.position.x = pinRestPos.x - 0.045 * eased - 0.09 * drop;
+      pin.rotation.z = pinRestRot.z - 0.30 * snap - 1.8 * drop;
+      pin.rotation.x = pinRestRot.x + 0.30 * draw + 2.4 * drop;
+      pin.rotation.y = pinRestRot.y + 0.45 * eased;
+      pin.visible = pinPullT < PIN_DUR;
+      // The clock keeps running past the animation, because the free hand is still holding the ring
+      // and needs to know when to come back off it.
+      if (pinPullT > PIN_TAIL) pinPullT = -1;
     }
 
     function collectExtinguisher() {
@@ -2470,53 +2483,68 @@
       }
     }
 
-    // Hand held extinguisher: the unit is carried in front of the camera and picks up the walk
-    // cyclically, so it swings and settles as the player moves instead of tracking the view rigidly.
-    let holdSway = 0;
+    // Hand held extinguisher. The unit is pinned to the grip anchor inside the player's right hand,
+    // so it sits at the carry handle and is carried bodily: it takes the walk sway, the closing grip
+    // and the kick of the lever from the hand itself. Tracking the camera at a fixed offset instead
+    // is what made it hang in space like a unit still clamped in its wall stand.
+    const gripPos = new THREE.Vector3();
+    const gripQuat = new THREE.Quaternion();
+    const gripOffset = new THREE.Vector3();
+    // How far up the unit the carry handle sits. The hero model is normalised to this same 1.16 m
+    // height, and its squeeze lever occupies the top four centimetres with the fixed carrying handle
+    // just under it, so the hand closes on the unit at about 1.06 - not at 1.00, which hung the
+    // whole body ten centimetres too high out of the fist.
+    const GRIP_HEIGHT = 1.06;
     function updateExtinguisher(dt = 0.016) {
       if (!pickedUp || !active) return;
       if (renderer.xr.isPresenting) return;  // parented to the controller instead
-      const walking = keys.has('KeyW') || keys.has('KeyA') || keys.has('KeyS') || keys.has('KeyD');
-      // Cadence is faster under load than at rest, so the bob tracks the walk rather than a metronome.
-      holdSway += (walking ? 7.2 : 1.5) * dt;
-      const amount = walking ? 1 : 0.34;
-      const swayX = Math.sin(holdSway) * 0.016 * amount;
-      const swayY = Math.cos(holdSway * 2) * 0.012 * amount;
-      // A little kick back into the body while the lever is held down.
-      const recoil = spraying ? 0.022 + Math.sin(holdSway * 9) * 0.004 : 0;
-      const right = new THREE.Vector3().crossVectors(cameraDir, worldUp).normalize();
-      extinguisher.position.copy(cameraWorld).addScaledVector(cameraDir, 0.8 - recoil).addScaledVector(right, 0.38 + swayX);
-      extinguisher.position.y -= 0.52 + swayY;
-      extinguisher.quaternion.copy(camera.quaternion);
-      extinguisher.rotateX(-0.18 + (spraying ? 0.07 : 0));
-      extinguisher.rotateZ(-0.12 + swayX * 2.2);
+      if (!enhance.gripAnchor(gripPos, gripQuat)) return;
+      extinguisher.quaternion.copy(gripQuat);
+      // Leaned back into the fist and rolled a little outboard, the way a unit hangs off a grip.
+      extinguisher.rotateX(-0.16 + (spraying ? 0.05 : 0));
+      extinguisher.rotateZ(-0.10);
+      // Place the unit so it is the handle that lands in the hand and the body that hangs below it.
+      gripOffset.set(0, GRIP_HEIGHT, 0).applyQuaternion(extinguisher.quaternion);
+      extinguisher.position.copy(gripPos).sub(gripOffset);
       extinguisher.visible = true;
     }
 
+    let sprayAge = 0;
+    const nozzleWorld = new THREE.Vector3();
+    const sprayDir = new THREE.Vector3();
     function updateSpray(dt, t) {
       if (!spraying || !active || !pickedUp || !pinRemoved) {
         sprayParticles.forEach(p => p.visible = false);
+        sprayAge = 0;
         return;
       }
-      const nozzleWorld = new THREE.Vector3();
-      extinguisher.localToWorld(nozzleWorld.set(0.42, 0.48, 0.08));
+      sprayAge += dt;
+      // The lever takes a beat to crack the valve open, so the jet builds over the first fraction of
+      // a second instead of arriving at full force on the first frame.
+      const prime = Math.min(1, sprayAge / 0.20);
+      // The jet leaves from the valve shoulder at the top of the unit, outboard of the body on the
+      // side the lever and the hose sit, so it starts where the powder actually leaves the horn.
+      // Off the middle of the body, where this once was, the cone simply appears to grow out of the
+      // side of the canister.
+      extinguisher.localToWorld(nozzleWorld.set(0.19, 1.02, -0.02));
       const firePos = new THREE.Vector3(2.2, 1.1, -7);
-      const direction = firePos.sub(nozzleWorld).normalize();
+      const direction = sprayDir.copy(firePos).sub(nozzleWorld).normalize();
       sprayParticles.forEach((p, i) => {
-        const spread = 0.10 + (i % 6) * 0.022;
-        const travel = ((t * 3.4 + i * 0.137) % 1);
-        const dist = travel * 5.8;
-        // A projected powder jet: the cone widens with distance, the puffs grow as they slow, and
-        // they droop slightly under gravity before fading out at the end of their reach.
-        const widen = 0.35 + travel * 1.65;
+        const spread = 0.06 + (i % 6) * 0.016;
+        const travel = ((t * 3.6 + i * 0.137) % 1);
+        const dist = travel * 6.2;
+        // A projected powder jet: the cone stays tight at the horn and widens with distance, the
+        // puffs grow as they slow, and they sag under gravity before fading at the end of their
+        // reach. Clouds only start wobbling once they are clear of the nozzle.
+        const widen = travel * travel * (0.30 + travel * 2.05);
         p.position.copy(nozzleWorld).addScaledVector(direction, dist);
         p.position.x += Math.sin(t * 8 + i) * spread * widen;
-        p.position.y += Math.cos(t * 7 + i * 1.7) * spread * widen - travel * travel * 0.30;
+        p.position.y += Math.cos(t * 7 + i * 1.7) * spread * widen - travel * travel * 0.42;
         p.position.z += Math.sin(t * 6 + i * 0.7) * spread * widen;
-        const fade = Math.min(1, travel * 6) * (1 - travel * 0.92);
-        p.scale.setScalar(0.5 + travel * 1.4);
-        p.material.opacity = 0.10 + 0.66 * fade;
-        p.visible = fade > 0.02;
+        const fade = Math.min(1, travel * 7) * (1 - travel * 0.92);
+        p.scale.setScalar(0.4 + travel * 1.6);
+        p.material.opacity = (0.12 + 0.62 * fade) * prime;
+        p.visible = fade > 0.02 && prime > 0.05;
       });
       fireIntensity = Math.max(0, fireIntensity - dt * 17 * enhance.efficiency());
       supply = Math.max(0, supply - dt * 13);
@@ -2946,18 +2974,32 @@
         if (!wrist || !midMeta || !idxMeta || !pkyMeta) return null;
 
         // f runs down the fingers and s across the knuckles, so f x s is normal to one face of the
-        // hand. Which face is the palm is read off the rig rather than assumed: the fingertips curl
-        // towards the palm, so their average deviation from that normal gives the sign.
+        // hand. Which face carries the palm is measured off the rig rather than assumed: a finger is
+        // a chain of phalanges and a chain curls towards the palm, so the direction each chain bends
+        // into - its own centre of curvature - is on the palm side. Averaged over the four fingers
+        // the two published assets answer decisively (0.70 of the way across for the left hand,
+        // -0.78 for the right) and come out mirrored, which is the check that the reading is right.
+        // Comparing a fingertip against its own knuckle instead, as this once did, reads the shape
+        // of the hand rather than the direction it closes and gets the answer backwards.
         const f = midMeta.clone().sub(wrist).normalize();
         const s = idxMeta.clone().sub(pkyMeta).normalize();
         const face = new THREE.Vector3().crossVectors(f, s).normalize();
         const FINGERS = ['index', 'middle', 'ring', 'pinky'];
+        const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), axis = new THREE.Vector3();
         let bend = 0;
         FINGERS.forEach(name => {
-          const meta = pos(`${name}-finger-metacarpal`), tip = pos(`${name}-finger-tip`);
-          if (meta && tip) bend += tip.clone().sub(meta).normalize().dot(face);
+          const a = pos(`${name}-finger-metacarpal`);
+          const b = pos(`${name}-finger-phalanx-proximal`);
+          const c = pos(`${name}-finger-phalanx-intermediate`);
+          if (!a || !b || !c) return;
+          v1.copy(b).sub(a).normalize();
+          v2.copy(c).sub(b).normalize();
+          axis.crossVectors(v1, v2);
+          if (axis.lengthSq() < 2.5e-3) return;   // that pair is all but straight, so it says nothing
+          bend += axis.normalize().cross(v1).dot(face);
         });
-        const palm = face.clone().multiplyScalar(bend < 0 ? -1 : 1);
+        const palm = face.clone();
+        if (bend < 0) palm.multiplyScalar(-1);
         // A positive rotation about this hinge swings a finger towards the palm. Checked against
         // both the published left and right assets by measuring where each fingertip lands: this
         // direction folds all four fingers in, the opposite one throws them off the back of the hand.
@@ -2987,10 +3029,10 @@
         hinge('thumb-phalanx-distal', thumbAxis, 0.95);
 
         // Re-frame the rig so the wrist sits on the group origin, the fingers run up +Y and the palm
-        // faces +Z. That is the frame the rest and hold poses below are written in, so one set of
-        // poses drives either hand.
+        // faces -Z. That is exactly the frame the modelled stand-in hand is built in, which is what
+        // lets one set of poses, one grip anchor and one wrist pivot drive either hand.
         const src = new THREE.Matrix4().makeBasis(palm, f, new THREE.Vector3().crossVectors(palm, f));
-        const dst = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(-1, 0, 0));
+        const dst = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0));
         const frame = new THREE.Matrix4().multiplyMatrices(dst, src.invert());
         root.applyMatrix4(new THREE.Matrix4().multiplyMatrices(frame, new THREE.Matrix4().makeTranslation(-wrist.x, -wrist.y, -wrist.z)));
 
@@ -3115,10 +3157,13 @@
 
       function buildArm(side) {
         const arm = new THREE.Group();
-        const hand = new THREE.Group();
-        arm.add(hand);
+        // The wrist is one pivot for the whole lower arm: the hand, the gauntlet and the sleeve all
+        // hang off it, so the limb moves as a single piece. Hung as siblings the sleeve could never
+        // follow the hand, which is what left the arm reading as a glove with a tube behind it.
+        const wrist = new THREE.Group();
+        arm.add(wrist);
         const standIn = buildStandInHand(side);
-        hand.add(standIn.group);
+        wrist.add(standIn.group);
         // The arm opens with the modelled stand-in and swaps to the scanned hand the moment it
         // arrives. It streams through the same loader and manager the boot gate already watches, so
         // the swap normally happens behind the boot screen.
@@ -3126,15 +3171,24 @@
         handGltf(side).then(gltf => {
           const rig = gltf ? buildHandFromRig(skeletonClone(gltf.scene), side) : null;
           if (!rig) return;
-          hand.remove(standIn.group);
-          hand.add(rig.group);
+          wrist.remove(standIn.group);
+          wrist.add(rig.group);
           slot.hand = rig;
         });
+        // The carry grip: a bare anchor in the pocket of the closed fist, between the palm and the
+        // fingers curled over it, roughly 8 cm up the hand from the wrist joint. Whatever the player
+        // is carrying is pinned there, so it takes on the walk sway, the closing grip and the
+        // discharge kick the hand itself is given - and it sits *in* the hand rather than in front of
+        // it. The hand hangs nose-down off the wrist in this frame, which is why the same point reads
+        // as barely below and well ahead of the wrist joint here.
+        const grip = new THREE.Group();
+        grip.position.set(0, 0.003, -0.080);
+        wrist.add(grip);
         // Forearm runs back and down out of frame, so the sleeve enters from the bottom edge.
         const forearm = new THREE.Group();
-        forearm.position.set(0, -0.012, 0.028);
-        forearm.rotation.set(0.60, 0, side * 0.16);
-        arm.add(forearm);
+        forearm.position.set(0, 0.004, 0);
+        forearm.rotation.set(-0.62, 0, side * 0.16);
+        wrist.add(forearm);
         const sleeve = viewPart(new THREE.Mesh(new THREE.CylinderGeometry(0.050, 0.069, 0.32, 18), sleeveMat));
         sleeve.position.y = -0.168;
         forearm.add(sleeve);
@@ -3148,38 +3202,69 @@
         cuff.position.y = -0.006;
         cuff.scale.set(0.94, 1, 0.68);
         forearm.add(cuff);
-        return { group: arm, setCurl: k => slot.hand.setCurl(k) };
+        return { group: arm, grip, setCurl: k => slot.hand.setCurl(k) };
       }
       const playerRig = new THREE.Group();
       playerRig.name = 'player-viewmodel';
       const armR = buildArm(1), armL = buildArm(-1);
       playerRig.add(armR.group, armL.group);
       camera.add(playerRig);
-      // Relaxed at the hip, then a two-handed grip once the extinguisher is collected.
+      // Relaxed at the hip, then a two-handed carry once the extinguisher is collected: the right
+      // hand takes the carry handle and the left steadies the body of the unit below it.
       const POSE_REST_R = new THREE.Vector3(0.30, -0.26, -0.48);
       const POSE_REST_L = new THREE.Vector3(-0.24, -0.28, -0.48);
-      const POSE_HOLD_R = new THREE.Vector3(0.32, -0.06, -0.66);
-      const POSE_HOLD_L = new THREE.Vector3(0.16, -0.34, -0.72);
+      const POSE_HOLD_R = new THREE.Vector3(0.33, -0.09, -0.66);
+      const POSE_HOLD_L = new THREE.Vector3(0.14, -0.30, -0.70);
+      // The free hand crosses to the safety pin on the valve, hauls the ring back towards the chest
+      // and returns to the body of the unit.
+      const POSE_PIN_L = new THREE.Vector3(0.24, -0.04, -0.60);
+      const POSE_PIN_OUT_L = new THREE.Vector3(0.02, -0.24, -0.44);
+      const pinHandPt = new THREE.Vector3();
       let carryAmt = 0;
       function updateViewModel(dt, t) {
         const inXR = renderer.xr.isPresenting;
         playerRig.visible = !inXR;
         if (inXR) return;
         carryAmt += ((pickedUp ? 1 : 0) - carryAmt) * Math.min(1, dt * 5);
-        // A resting sway plus a discharge tremor, so the hands belong to a body rather than
-        // being welded to the lens.
+
+        // The free hand's part in the P.A.S.S. pull, read straight off the pin tween so the two can
+        // never disagree about when the pin leaves the valve. It reaches, draws the pin out, holds
+        // it clear while the pin falls away, then walks back to the body of the unit.
+        let pinBlend = 0, pinDraw = 0;
+        if (pinPullT >= 0) {
+          const reach = THREE.MathUtils.smoothstep(pinPullT, 0.02, 0.20);
+          const draw = THREE.MathUtils.smoothstep(pinPullT, 0.24, 0.62);
+          const back = THREE.MathUtils.smoothstep(pinPullT, 0.92, 1.30);
+          pinBlend = reach * (1 - back);
+          pinDraw = draw * (1 - back);
+        }
+
+        // A resting sway plus a discharge tremor, so the hands belong to a body rather than being
+        // welded to the lens. The tremor is applied to the right hand, which is what carries the
+        // unit, so the extinguisher kicks with it instead of shaking against a fixed camera offset.
         const sway = Math.sin(t * 1.4) * 0.010 + Math.sin(t * 2.3) * 0.005;
-        const kick = spraying ? (Math.random() - 0.5) * 0.018 : 0;
-        // The fingers close onto the handle as it is collected, and clamp a little tighter while
-        // the extinguisher is discharging.
-        const curl = Math.min(1, carryAmt + (spraying ? 0.08 : 0));
-        armR.setCurl(curl); armL.setCurl(curl);
+        const tremor = spraying ? Math.sin(t * 41) * 0.004 + (Math.random() - 0.5) * 0.009 : 0;
+        const kick = spraying ? 0.014 : 0;
+        // The fingers close onto the handle as it is collected, clamp tighter while the extinguisher
+        // is discharging, and let go of the grip while the free hand is busy with the pin.
+        armR.setCurl(Math.min(1, carryAmt + (spraying ? 0.10 : 0)));
+        armL.setCurl(Math.min(1, carryAmt + pinBlend * 0.75));
         armR.group.rotation.y = -carryAmt * 0.14;
         armL.group.rotation.y = carryAmt * 0.18;
+
         armR.group.position.copy(POSE_REST_R).lerp(POSE_HOLD_R, carryAmt);
+        armR.group.position.x += sway + tremor * 0.6;
+        armR.group.position.y += sway * 0.5 - kick * 0.35;
+        armR.group.position.z += kick + tremor;
+
         armL.group.position.copy(POSE_REST_L).lerp(POSE_HOLD_L, carryAmt);
-        armR.group.position.x += sway + kick; armR.group.position.y += sway * 0.5;
-        armL.group.position.x -= sway * 0.7; armL.group.position.y -= sway * 0.4; armL.group.position.z += kick;
+        if (pinBlend > 0.001) {
+          pinHandPt.copy(POSE_PIN_L).lerp(POSE_PIN_OUT_L, pinDraw);
+          armL.group.position.lerp(pinHandPt, pinBlend);
+        }
+        armL.group.position.x -= sway * 0.7 + tremor * 0.5;
+        armL.group.position.y -= sway * 0.4;
+        armL.group.position.z += kick * 0.5;
       }
 
       // Dresses a loaded rig. The kit is authored in metres, which is valid because the model has
@@ -4010,6 +4095,10 @@
       }
 
       function update(dt, t) {
+        // The desktop view model is hidden whenever a headset is presenting. The pose frame sets the
+        // same flag, but it is skipped while the sim is paused, so keep it true here too - otherwise
+        // pausing and then entering VR leaves the gloved hands hanging in the middle of the view.
+        playerRig.visible = !renderer.xr.isPresenting;
         if (startedAt !== lastStart) {
           lastStart = startedAt; alarmOn = false; heat = 0; peakHeat = 0; warned = false; burn = 0;
           workers.forEach(w => w.reset()); beaconMat.emissiveIntensity = 0.2; callLight.intensity = 0;
@@ -4136,13 +4225,9 @@
           else camera.position.y += (1.7 - camera.position.y) * 0.15;
           camera.rotation.z = spraying ? Math.sin(t * 47) * 0.003 + Math.sin(t * 31) * 0.002 : 0;
         }
-        if (pickedUp && active && !renderer.xr.isPresenting) {
-          extinguisher.position.y += Math.sin(t * 1.6) * 0.006;
-          if (spraying) { extinguisher.position.x += (Math.random() - 0.5) * 0.012; extinguisher.position.z += (Math.random() - 0.5) * 0.012; }
-        }
-        // The player's own hands ride the same head transform as everything else above.
-        updateViewModel(dt, t);
-
+        // The player's own hands ride the same head transform as everything else above. They are
+        // posed by the paint frame rather than here, because the extinguisher is pinned to the grip
+        // in the right hand and has to be placed from the same frame's pose.
         updateAudio(I, t);
 
         // Contextual prompts layered over the original guidance. Each one names the single key
@@ -4164,6 +4249,16 @@
       return {
         update, efficiency, composer, depthPass, tryRaiseAlarm,
         resize() { if (composer) composer.setSize(innerWidth, innerHeight); resizeDepthRT(); updateParticleScale(); },
+        // The view model lives inside this scope, so these two are the bridge out of it: the hands
+        // are posed on demand, and the right hand's carry grip is published so the held extinguisher
+        // can be pinned to it rather than to a fixed offset from the camera.
+        syncHands: updateViewModel,
+        gripAnchor(pos, quat) {
+          if (!playerRig.visible) return false;
+          armR.grip.getWorldPosition(pos);
+          armR.grip.getWorldQuaternion(quat);
+          return true;
+        },
         heatEffect,
         get alarmOn() { return alarmOn; },
         get peakHeat() { return peakHeat; },
@@ -4185,6 +4280,9 @@
         // use the camera's real position instead of the previous frame's.
         camera.getWorldPosition(cameraWorld);
         camera.getWorldDirection(cameraDir);
+        // Hands first, then the unit pinned to the right hand's grip, so both are placed from this
+        // frame's pose rather than the unit lagging a frame behind the hand that is carrying it.
+        enhance.syncHands(dt, t);
         updateExtinguisher(dt);
         updateSpray(dt, t);
         updateGuidance();
