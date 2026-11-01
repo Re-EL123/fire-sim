@@ -2533,6 +2533,54 @@
         });
       }
 
+      // --- The player's own body: gloved hands on hi-vis sleeves ---------------------------
+      // Desktop presents a view model parented to the camera, so the user can see their own
+      // character. Because it lives under the camera node, yaw, pitch, the walk bob and the
+      // discharge shake all carry through with no extra maths, and the extinguisher that is
+      // placed in front of the eye reads as gripped rather than floating. XR supplies the
+      // player's real hands through the controllers, so the layer is hidden there.
+      const sleeveMat = trackLit(new THREE.MeshStandardMaterial({ color: 0xf25a12, roughness: 0.72, metalness: 0.02 }));
+      const cuffMat = trackLit(new THREE.MeshStandardMaterial({ color: 0xe4eaee, roughness: 0.35, metalness: 0.35 }));
+      const gloveMat = ppe.glove;
+      const viewPart = m => { m.castShadow = false; m.receiveShadow = false; m.frustumCulled = false; return m; };
+      function buildArm(side) {
+        const arm = new THREE.Group();
+        // Forearm runs back and down out of frame, so the sleeve enters from the bottom edge.
+        const sleeve = viewPart(new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.34, 4, 12), sleeveMat));
+        sleeve.position.set(0, -0.21, 0.12); sleeve.rotation.set(0.62, 0, side * 0.16);
+        const cuff = viewPart(new THREE.Mesh(new THREE.CylinderGeometry(0.061, 0.061, 0.032, 14), cuffMat));
+        cuff.position.set(0, -0.03, 0.065); cuff.rotation.set(0.62, 0, side * 0.16);
+        const glove = viewPart(new THREE.Mesh(new THREE.CapsuleGeometry(0.043, 0.075, 4, 12), gloveMat));
+        glove.rotation.x = -1.0;
+        arm.add(sleeve, cuff, glove);
+        return arm;
+      }
+      const playerRig = new THREE.Group();
+      playerRig.name = 'player-viewmodel';
+      const armR = buildArm(1), armL = buildArm(-1);
+      playerRig.add(armR, armL);
+      camera.add(playerRig);
+      // Relaxed at the hip, then a two-handed grip once the extinguisher is collected.
+      const POSE_REST_R = new THREE.Vector3(0.30, -0.26, -0.48);
+      const POSE_REST_L = new THREE.Vector3(-0.24, -0.28, -0.48);
+      const POSE_HOLD_R = new THREE.Vector3(0.32, -0.06, -0.66);
+      const POSE_HOLD_L = new THREE.Vector3(0.16, -0.34, -0.72);
+      let carryAmt = 0;
+      function updateViewModel(dt, t) {
+        const inXR = renderer.xr.isPresenting;
+        playerRig.visible = !inXR;
+        if (inXR) return;
+        carryAmt += ((pickedUp ? 1 : 0) - carryAmt) * Math.min(1, dt * 5);
+        // A resting sway plus a discharge tremor, so the hands belong to a body rather than
+        // being welded to the lens.
+        const sway = Math.sin(t * 1.4) * 0.010 + Math.sin(t * 2.3) * 0.005;
+        const kick = spraying ? (Math.random() - 0.5) * 0.018 : 0;
+        armR.position.copy(POSE_REST_R).lerp(POSE_HOLD_R, carryAmt);
+        armL.position.copy(POSE_REST_L).lerp(POSE_HOLD_L, carryAmt);
+        armR.position.x += sway + kick; armR.position.y += sway * 0.5;
+        armL.position.x -= sway * 0.7; armL.position.y -= sway * 0.4; armL.position.z += kick;
+      }
+
       // Dresses a loaded rig. The kit is authored in metres, which is valid because the model has
       // just been normalised to 1.78 m, and it is anchored to the rig's own bones where they exist
       // (hips/head/hands/feet) and to the bounding box otherwise, so one kit fits both characters.
@@ -2717,24 +2765,26 @@
         return t;
       }
       // u is the cell's position in the loop (0..1), so consecutive cells are consecutive frames.
+      // The tongues are drawn as tall ellipses rather than round blobs and burn hotter at the core,
+      // so a stack of them reads as licking flame instead of a soft grey haze.
       function drawFlameCell(g, u, S) {
         const c = S / 2, TAU = Math.PI * 2;
         g.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < 9; i++) {
+        for (let i = 0; i < 7; i++) {
           const s = i * 2.399;
-          const life = (u * 2 + i / 9) % 1;
+          const life = (u * 2 + i / 7) % 1;
           const wobble = Math.sin(TAU * u + s) * 0.6 + Math.sin(TAU * 2 * u + s * 1.7) * 0.4;
-          const x = c + wobble * S * 0.14 * (0.35 + life);
-          const y = c + S * 0.30 - life * S * 0.56;
-          const r = Math.max(1, S * (0.25 - life * 0.14) * (0.85 + 0.30 * Math.sin(TAU * u + s * 2.1)));
-          const heat = 1 - life * 0.85;
+          const x = c + wobble * S * 0.13 * (0.35 + life);
+          const y = c + S * 0.32 - life * S * 0.60;
+          const r = Math.max(1, S * (0.22 - life * 0.11) * (0.85 + 0.30 * Math.sin(TAU * u + s * 2.1)));
+          const heat = 1 - life * 0.80;
           const gr = g.createRadialGradient(x, y, 0, x, y, r);
-          gr.addColorStop(0, `rgba(255,255,255,${(0.42 * heat).toFixed(3)})`);
-          gr.addColorStop(0.35, `rgba(255,255,255,${(0.24 * heat).toFixed(3)})`);
-          gr.addColorStop(0.70, `rgba(255,255,255,${(0.10 * heat).toFixed(3)})`);
+          gr.addColorStop(0, `rgba(255,255,255,${(0.55 * heat).toFixed(3)})`);
+          gr.addColorStop(0.30, `rgba(255,255,255,${(0.30 * heat).toFixed(3)})`);
+          gr.addColorStop(0.68, `rgba(255,255,255,${(0.10 * heat).toFixed(3)})`);
           gr.addColorStop(1, 'rgba(255,255,255,0)');
           g.fillStyle = gr;
-          g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+          g.beginPath(); g.ellipse(x, y, r * 0.78, r * 1.35, 0, 0, TAU); g.fill();
         }
         g.globalCompositeOperation = 'source-over';
       }
@@ -2822,17 +2872,21 @@
           float alpha = texture2D( uMap, uv ).a * uOpacity;
           vec3 col;
         #if MODE == 0
-          col = mix( vec3( 1.0, 0.94, 0.70 ), vec3( 1.0, 0.26, 0.04 ), smoothstep( 0.0, 0.9, vAge ) );
-          alpha *= smoothstep( 0.0, 0.12, vAge ) * ( 1.0 - smoothstep( 0.45, 1.0, vAge ) ) * ( 0.25 + 0.90 * uI );
+          // Licking flame: a warm yellow core that reddens as the tongue cools, held opaque for
+          // most of its life so the additive stack stays saturated instead of washing to haze.
+          col = mix( vec3( 1.0, 0.86, 0.38 ), vec3( 1.0, 0.20, 0.02 ), smoothstep( 0.0, 0.8, vAge ) );
+          alpha *= smoothstep( 0.0, 0.08, vAge ) * ( 1.0 - smoothstep( 0.55, 1.0, vAge ) ) * ( 0.40 + 1.05 * uI );
         #elif MODE == 1
-          float lit = clamp( vLit, 0.0, 0.85 );
-          col = mix( vec3( 0.24, 0.26, 0.28 ), vec3( 1.0, 0.42, 0.12 ), lit );
-          alpha *= ( 1.0 - vAge ) * min( 1.0, vAge * 7.0 ) * ( 0.25 + 0.75 * uI );
+          // Smoke only stays dark where it is cold: the lit term is pushed hard so the plume
+          // rising off the fire still glows orange and never settles into a grey column.
+          float lit = clamp( vLit * 1.4, 0.0, 0.95 );
+          col = mix( vec3( 0.20, 0.17, 0.16 ), vec3( 1.0, 0.34, 0.07 ), lit );
+          alpha *= ( 1.0 - vAge ) * min( 1.0, vAge * 6.0 ) * ( 0.15 + 0.55 * uI );
         #elif MODE == 2
           col = vec3( 0.88, 0.92, 0.95 );
           alpha *= ( 1.0 - vAge );
         #else
-          col = vec3( 1.0, 0.55 + 0.25 * vSeed, 0.18 ) * ( 0.55 + 0.65 * uI );
+          col = vec3( 1.0, 0.62 + 0.30 * vSeed, 0.16 ) * ( 0.80 + 0.90 * uI );
           alpha *= ( 1.0 - vAge ) * ( 0.70 + 0.30 * sin( vSeed * 40.0 ) );
         #endif
         #ifdef SOFT_PARTICLES
@@ -2919,15 +2973,18 @@
         return { emit, update, points };
       }
 
-      // Pool sizes follow the tier: Quest 1 gets roughly a third of the desktop budget.
+      // Pool sizes follow the tier: Quest 1 gets roughly a third of the desktop budget. The flame
+      // pool is deliberately the largest and the smoke pool the smallest: a fire is mostly bright
+      // licking flame with a thin wisp of smoke off the top, and the old budget (few flames, a big
+      // grey plume) was what made the whole thing read as smoke.
       const budget = n => Math.max(8, Math.round(n * tier.particleScale));
-      const fireP = particleField({ max: budget(110), tex: fireTex, cols: 6, rows: 6, blending: THREE.AdditiveBlending, mode: 0, sizeFn: (q, k) => q.size * (1 - k * 0.5) });
-      const smokeP = particleField({ max: budget(44), tex: smokeTex, cols: 8, rows: 8, blending: THREE.NormalBlending, mode: 1, sizeFn: (q, k) => q.size * (1 + k * 2.1) });
+      const fireP = particleField({ max: budget(200), tex: fireTex, cols: 6, rows: 6, blending: THREE.AdditiveBlending, mode: 0, sizeFn: (q, k) => q.size * (1 + k * 0.25) });
+      const smokeP = particleField({ max: budget(30), tex: smokeTex, cols: 8, rows: 8, blending: THREE.NormalBlending, mode: 1, sizeFn: (q, k) => q.size * (0.7 + k * 1.1) });
       // The second smoke layer is the one that reads as lit by the fire: same atlas, additive, and
       // tinted towards the flame colour by the distance term in the vertex shader.
-      const smokeGlowP = particleField({ max: budget(26), tex: smokeTex, cols: 8, rows: 8, blending: THREE.AdditiveBlending, mode: 1, sizeFn: (q, k) => q.size * (1 + k * 1.6) });
+      const smokeGlowP = particleField({ max: budget(30), tex: smokeTex, cols: 8, rows: 8, blending: THREE.AdditiveBlending, mode: 1, sizeFn: (q, k) => q.size * (0.8 + k * 1.4) });
       const steamP = particleField({ max: budget(34), tex: smokeTex, cols: 8, rows: 8, blending: THREE.NormalBlending, mode: 2, sizeFn: (q, k) => q.size * (1 + k * 1.2) });
-      const emberP = particleField({ max: budget(40), tex: fireTex, cols: 6, rows: 6, blending: THREE.AdditiveBlending, mode: 3, gravity: 0.4, sizeFn: q => q.size });
+      const emberP = particleField({ max: budget(64), tex: fireTex, cols: 6, rows: 6, blending: THREE.AdditiveBlending, mode: 3, gravity: 0.4, sizeFn: q => q.size });
       const particleFields = [fireP, smokeP, smokeGlowP, steamP, emberP];
 
       // --- Dust motes in the light -------------------------------------------------------------
@@ -3072,19 +3129,22 @@
                 // A hot, wide base that narrows and breaks up as it climbs. Tapering on h (rather
                 // than fading in above the fuel) is what keeps the fire anchored to the crate and
                 // stops it reading as a floating blob.
-                float taper = pow( 1.0 - h, 1.15 );
+                float taper = pow( 1.0 - h, 1.35 );
                 float radial = clamp( 1.0 - length( q.xz ), 0.0, 1.0 );
-                float turb = fbm( vec3( q.x * 2.2, q.y * 2.6 - uTime * 2.2, q.z * 2.2 ) );
-                float d = taper * ( 0.30 + 0.90 * turb ) * smoothstep( -0.2, 0.8, radial );
-                d *= 0.25 + 0.75 * uI;
-                // Deep red at the tips, near-white where the fuel is still burning hard.
-                vec3 tint = mix( vec3( 1.0, 0.30, 0.06 ), vec3( 1.0, 0.90, 0.62 ), pow( 1.0 - h, 2.0 ) );
-                acc += tint * d * stride * 2.2;
-                dens += d * stride * 1.5;
+                float turb = fbm( vec3( q.x * 2.4, q.y * 3.0 - uTime * 2.6, q.z * 2.4 ) );
+                // Sharpen the noise into licking tongues: a raw fbm averages out to a soft cone,
+                // while a higher power keeps the dense filaments separated by visible gaps.
+                turb = pow( turb, 1.6 );
+                float d = taper * ( 0.12 + 1.25 * turb ) * smoothstep( -0.15, 0.7, radial );
+                d *= 0.20 + 0.80 * uI;
+                // Deep red at the tips, saturated yellow where the fuel is still burning hard.
+                vec3 tint = mix( vec3( 1.0, 0.22, 0.03 ), vec3( 1.0, 0.85, 0.42 ), pow( 1.0 - h, 2.2 ) );
+                acc += tint * d * stride * 2.4;
+                dens += d * stride * 1.3;
                 p += rd * stride;
               }
-              vec3 col = mix( acc, vec3( 1.0, 0.94, 0.78 ), clamp( dens * 0.85, 0.0, 0.85 ) );
-              gl_FragColor = vec4( col, clamp( dens * 1.4, 0.0, 1.0 ) );
+              vec3 col = mix( acc, vec3( 1.0, 0.86, 0.55 ), clamp( dens * 0.55, 0.0, 0.70 ) );
+              gl_FragColor = vec4( col, clamp( dens * 1.5, 0.0, 1.0 ) );
               #include <tonemapping_fragment>
               #include <colorspace_fragment>
             }`
@@ -3348,15 +3408,17 @@
         if (heat < 30) warned = false;
         if (active && heat >= 100) { mistakes += 2; showToast('Too much heat exposure.'); completeScenario(false); }
 
-        // Particles (emission rates scaled by tier so Quest 1 stays inside budget)
-        acc.f += 75 * ps * I * dt; while (acc.f >= 1) { acc.f--; fireP.emit(2.2 + rnd(-0.55, 0.55), 0.95, -7 + rnd(-0.42, 0.42), rnd(-0.15, 0.15), rnd(1.2, 2.4), rnd(-0.15, 0.15), rnd(0.6, 1.2), rnd(0.8, 1.5)); }
-        acc.s += 9 * ps * I * dt; while (acc.s >= 1) {
+        // Particles (emission rates scaled by tier so Quest 1 stays inside budget). The flames
+        // carry the fire and the smoke is a thin wisp off the top: emitting a big grey plume from
+        // just above the fuel is what previously made the whole effect read as smoke.
+        acc.f += 120 * ps * I * dt; while (acc.f >= 1) { acc.f--; fireP.emit(2.2 + rnd(-0.6, 0.6), 0.95, -7 + rnd(-0.45, 0.45), rnd(-0.18, 0.18), rnd(1.5, 3.0), rnd(-0.18, 0.18), rnd(0.7, 1.3), rnd(0.9, 1.6)); }
+        acc.s += 3 * ps * I * dt; while (acc.s >= 1) {
           acc.s--;
-          const sx = 2.2 + rnd(-0.4, 0.4), sz = -7 + rnd(-0.3, 0.3);
-          smokeP.emit(sx, 2.0, sz, rnd(0.15, 0.35), rnd(0.7, 1.2), rnd(-0.1, 0.1), rnd(2.5, 4), rnd(0.9, 1.4));
-          smokeGlowP.emit(sx, 1.85, sz, rnd(0.1, 0.3), rnd(0.6, 1.0), rnd(-0.1, 0.1), rnd(2.2, 3.4), rnd(0.7, 1.1));
+          const sx = 2.2 + rnd(-0.35, 0.35), sz = -7 + rnd(-0.28, 0.28);
+          smokeP.emit(sx, 2.95, sz, rnd(0.10, 0.26), rnd(0.8, 1.3), rnd(-0.07, 0.07), rnd(2.6, 4.2), rnd(0.7, 1.1));
+          smokeGlowP.emit(sx, 2.45, sz, rnd(0.08, 0.22), rnd(0.7, 1.1), rnd(-0.07, 0.07), rnd(2.0, 3.2), rnd(0.6, 1.0));
         }
-        acc.e += 10 * ps * I * dt; while (acc.e >= 1) { acc.e--; emberP.emit(2.2 + rnd(-0.5, 0.5), 1.3, -7 + rnd(-0.4, 0.4), rnd(-0.5, 0.5), rnd(1.5, 3), rnd(-0.5, 0.5), rnd(1.2, 2.4), rnd(0.07, 0.13)); }
+        acc.e += 26 * ps * I * dt; while (acc.e >= 1) { acc.e--; emberP.emit(2.2 + rnd(-0.5, 0.5), 1.3, -7 + rnd(-0.4, 0.4), rnd(-0.5, 0.5), rnd(1.5, 3), rnd(-0.5, 0.5), rnd(1.2, 2.4), rnd(0.07, 0.13)); }
         if (spraying && active && efficiency() > 0.3) { acc.st += 22 * ps * dt; while (acc.st >= 1) { acc.st--; steamP.emit(2.2 + rnd(-0.5, 0.5), 1.1, -7 + rnd(-0.4, 0.4), rnd(-0.3, 0.3), rnd(1, 1.8), rnd(-0.3, 0.3), rnd(0.9, 1.6), rnd(0.6, 1)); } }
         // One CPU pool per system, mirrored into its dynamic vertex attributes this frame.
         particleFields.forEach(p => p.update(dt, t, I));
@@ -3432,6 +3494,8 @@
           extinguisher.position.y += Math.sin(t * 1.6) * 0.006;
           if (spraying) { extinguisher.position.x += (Math.random() - 0.5) * 0.012; extinguisher.position.z += (Math.random() - 0.5) * 0.012; }
         }
+        // The player's own hands ride the same head transform as everything else above.
+        updateViewModel(dt, t);
 
         updateAudio(I, t);
 
