@@ -293,6 +293,7 @@
     import { CSM } from 'three/addons/csm/CSM.js';
     import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
     import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
     // --- WebXR
     import { VRButton } from 'three/addons/webxr/VRButton.js';
     import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
@@ -2621,25 +2622,131 @@
       // placed in front of the eye reads as gripped rather than floating. XR supplies the
       // player's real hands through the controllers, so the layer is hidden there.
       const sleeveMat = trackLit(new THREE.MeshStandardMaterial({ color: 0xf25a12, roughness: 0.72, metalness: 0.02 }));
-      const cuffMat = trackLit(new THREE.MeshStandardMaterial({ color: 0xe4eaee, roughness: 0.35, metalness: 0.35 }));
+      const tapeMat = trackLit(new THREE.MeshStandardMaterial({ color: 0xd9dfe4, roughness: 0.16, metalness: 0.62 }));
+      const gloveCuffMat = trackLit(new THREE.MeshStandardMaterial({ color: 0x5e3c1e, roughness: 0.92, metalness: 0.02 }));
       const gloveMat = ppe.glove;
       const viewPart = m => { m.castShadow = false; m.receiveShadow = false; m.frustumCulled = false; return m; };
+
+      // An anatomically proportioned glove rather than a stand-in: a knuckle-arched palm with a
+      // thenar pad, four fingers of three hinged phalanges, and an opposed two-joint thumb. Every
+      // joint is its own pivot, so the hand can rest loose and then close onto a real grip.
+      const digitCache = new Map();
+      const digitGeo = (r, len) => {
+        const key = `${r.toFixed(4)}:${len.toFixed(4)}`;
+        let g = digitCache.get(key);
+        if (!g) { g = new THREE.CapsuleGeometry(r, len, 3, 10); digitCache.set(key, g); }
+        return g;
+      };
+      // knuckle x, knuckle y, outward yaw, radius, phalanx lengths — approximate adult male hand
+      const FINGERS = [
+        [-0.030, 0.094, 0.08, 0.0093, [0.030, 0.021, 0.016]],  // index
+        [-0.010, 0.097, 0.00, 0.0097, [0.034, 0.023, 0.018]],  // middle
+        [0.011, 0.094, -0.05, 0.0091, [0.031, 0.021, 0.016]],  // ring
+        [0.031, 0.087, -0.13, 0.0080, [0.024, 0.017, 0.014]]   // little
+      ];
+      const FINGER_CURL = [1.42, 1.72, 0.76];   // metacarpal, proximal, distal
+      const THUMB_CURL = [0.72, 1.05];
+      const REST_BEND = 0.34;                   // curl already present in an idle hand
+
+      function buildHand(side) {
+        const hand = new THREE.Group();
+
+        // Palm: wrist at the local origin, knuckles at +Y, thumb-side heavy so the silhouette is
+        // asymmetric the way a real glove is.
+        const palm = viewPart(new THREE.Mesh(new THREE.RoundedBoxGeometry(0.086, 0.100, 0.033, 3, 0.013), gloveMat));
+        palm.position.y = 0.050;
+        hand.add(palm);
+        const thenar = viewPart(new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), gloveMat));
+        thenar.scale.set(0.021, 0.030, 0.017);
+        thenar.position.set(-side * 0.026, 0.032, -0.004);
+        hand.add(thenar);
+
+        const curlSets = [];
+        FINGERS.forEach(([kx, ky, yaw, r, segs]) => {
+          const root = new THREE.Group();
+          root.position.set(side * kx, ky, 0);
+          root.rotation.set(-0.10, 0, side * yaw);
+          hand.add(root);
+          const joints = [];
+          let parent = root;
+          segs.forEach((len, i) => {
+            const joint = new THREE.Group();
+            const phalanx = viewPart(new THREE.Mesh(digitGeo(r * (1 - i * 0.09), len), gloveMat));
+            phalanx.position.y = len * 0.5;
+            joint.add(phalanx);
+            parent.add(joint);
+            joints.push(joint);
+            const next = new THREE.Group();
+            next.position.y = len;
+            joint.add(next);
+            parent = next;
+          });
+          curlSets.push({ joints, angles: FINGER_CURL });
+        });
+
+        // Thumb: opposed across the palm, mounted beside the wrist rather than on the knuckle line.
+        const thumbRoot = new THREE.Group();
+        thumbRoot.position.set(-side * 0.033, 0.030, -0.006);
+        thumbRoot.rotation.set(-0.42, 0, side * 1.02);
+        hand.add(thumbRoot);
+        const thumbJoints = [];
+        let thumbParent = thumbRoot;
+        [[0.0106, 0.033], [0.0093, 0.025]].forEach(([r, len]) => {
+          const joint = new THREE.Group();
+          const phalanx = viewPart(new THREE.Mesh(digitGeo(r, len), gloveMat));
+          phalanx.position.y = len * 0.5;
+          joint.add(phalanx);
+          thumbParent.add(joint);
+          thumbJoints.push(joint);
+          const next = new THREE.Group();
+          next.position.y = len;
+          joint.add(next);
+          thumbParent = next;
+        });
+        curlSets.push({ joints: thumbJoints, angles: THUMB_CURL });
+
+        // 0 keeps the hand loose, 1 wraps it around the extinguisher handle.
+        function setCurl(k) {
+          const c = REST_BEND + (1 - REST_BEND) * THREE.MathUtils.clamp(k, 0, 1);
+          curlSets.forEach(({ joints, angles }) => {
+            joints.forEach((j, i) => { j.rotation.x = -angles[i] * c; });
+          });
+        }
+        setCurl(0);
+        // Dropped nose-down off the wrist, so the player looks down at the back of the glove while
+        // the fingers wrap forward and away from the eye.
+        hand.rotation.x = -1.25;
+        return { group: hand, setCurl };
+      }
+
       function buildArm(side) {
         const arm = new THREE.Group();
+        const hand = buildHand(side);
+        arm.add(hand.group);
         // Forearm runs back and down out of frame, so the sleeve enters from the bottom edge.
-        const sleeve = viewPart(new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.34, 4, 12), sleeveMat));
-        sleeve.position.set(0, -0.21, 0.12); sleeve.rotation.set(0.62, 0, side * 0.16);
-        const cuff = viewPart(new THREE.Mesh(new THREE.CylinderGeometry(0.061, 0.061, 0.032, 14), cuffMat));
-        cuff.position.set(0, -0.03, 0.065); cuff.rotation.set(0.62, 0, side * 0.16);
-        const glove = viewPart(new THREE.Mesh(new THREE.CapsuleGeometry(0.043, 0.075, 4, 12), gloveMat));
-        glove.rotation.x = -1.0;
-        arm.add(sleeve, cuff, glove);
-        return arm;
+        const forearm = new THREE.Group();
+        forearm.position.set(0, -0.012, 0.028);
+        forearm.rotation.set(0.60, 0, side * 0.16);
+        arm.add(forearm);
+        const sleeve = viewPart(new THREE.Mesh(new THREE.CylinderGeometry(0.050, 0.069, 0.32, 18), sleeveMat));
+        sleeve.position.y = -0.168;
+        forearm.add(sleeve);
+        [[0.075, 0.0528, 0.0555], [0.128, 0.0555, 0.0585]].forEach(([d, rt, rb]) => {
+          const band = viewPart(new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, 0.028, 18), tapeMat));
+          band.position.y = -d;
+          forearm.add(band);
+        });
+        // Knitted gauntlet bridging the sleeve and the glove.
+        const cuff = viewPart(new THREE.Mesh(new THREE.CylinderGeometry(0.050, 0.047, 0.052, 18), gloveCuffMat));
+        cuff.position.y = -0.006;
+        cuff.scale.set(0.94, 1, 0.68);
+        forearm.add(cuff);
+        return { group: arm, setCurl: hand.setCurl };
       }
       const playerRig = new THREE.Group();
       playerRig.name = 'player-viewmodel';
       const armR = buildArm(1), armL = buildArm(-1);
-      playerRig.add(armR, armL);
+      playerRig.add(armR.group, armL.group);
       camera.add(playerRig);
       // Relaxed at the hip, then a two-handed grip once the extinguisher is collected.
       const POSE_REST_R = new THREE.Vector3(0.30, -0.26, -0.48);
@@ -2656,10 +2763,16 @@
         // being welded to the lens.
         const sway = Math.sin(t * 1.4) * 0.010 + Math.sin(t * 2.3) * 0.005;
         const kick = spraying ? (Math.random() - 0.5) * 0.018 : 0;
-        armR.position.copy(POSE_REST_R).lerp(POSE_HOLD_R, carryAmt);
-        armL.position.copy(POSE_REST_L).lerp(POSE_HOLD_L, carryAmt);
-        armR.position.x += sway + kick; armR.position.y += sway * 0.5;
-        armL.position.x -= sway * 0.7; armL.position.y -= sway * 0.4; armL.position.z += kick;
+        // The fingers close onto the handle as it is collected, and clamp a little tighter while
+        // the extinguisher is discharging.
+        const curl = Math.min(1, carryAmt + (spraying ? 0.08 : 0));
+        armR.setCurl(curl); armL.setCurl(curl);
+        armR.group.rotation.y = -carryAmt * 0.14;
+        armL.group.rotation.y = carryAmt * 0.18;
+        armR.group.position.copy(POSE_REST_R).lerp(POSE_HOLD_R, carryAmt);
+        armL.group.position.copy(POSE_REST_L).lerp(POSE_HOLD_L, carryAmt);
+        armR.group.position.x += sway + kick; armR.group.position.y += sway * 0.5;
+        armL.group.position.x -= sway * 0.7; armL.group.position.y -= sway * 0.4; armL.group.position.z += kick;
       }
 
       // Dresses a loaded rig. The kit is authored in metres, which is valid because the model has
