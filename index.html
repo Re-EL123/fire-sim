@@ -1338,6 +1338,70 @@
       return root;
     }
 
+    // The hero extinguisher's scan still carries its wall-mount bracket: large flat plates hung off
+    // the foot at up to twice the radius of the can, cut square rather than round, which at the size
+    // this unit is drawn reads as the unit standing on a plinth. Cutting it out by triangles cannot
+    // work - the plates are welded into a skirt whose every shell reaches back inside the can, so a
+    // cut either leaves most of the bracket behind or punches a hole through the base. So the
+    // geometry is tucked rather than cut: anything below yCut sitting further out than rCut is pulled
+    // straight in onto that radius. Vertex positions move, connectivity does not, so the silhouette
+    // comes down to the can's own width with no new edges, no holes and nothing left hanging.
+    // The axis is the midpoint of the plain cylindrical mid-band's extents, not its centre of mass:
+    // the skirt's own dense vertices drag a centre-of-mass estimate off the true axis, which is what
+    // made an earlier pass at this measure radii that were far too large. rCut sits just outside the
+    // can wall, which reaches 0.110 of the model's 0.659 height and no higher, so the can is never
+    // touched and no step shows where the tuck ends. It runs *before* fitToGround so the loader
+    // grounds the tucked foot rather than the discarded bracket tips.
+    function trimFlare(root, { rFrac = 0.175, yFrac = 0.45 } = {}) {
+      root.updateMatrixWorld(true);
+      const meshes = [];
+      root.traverse(o => { if (o.isMesh && o.geometry && o.geometry.attributes.position) meshes.push(o); });
+      if (!meshes.length) return;
+      const box = new THREE.Box3().setFromObject(root);
+      const h = box.max.y - box.min.y;
+      if (!(h > 1e-4)) return;
+      const yCut = box.min.y + h * yFrac, rCut = h * rFrac;
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      const v = new THREE.Vector3();
+      meshes.forEach(o => {
+        const p = o.geometry.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+          v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
+          if (v.y < box.min.y + h * 0.35 || v.y > box.min.y + h * 0.75) continue;
+          x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x);
+          z0 = Math.min(z0, v.z); z1 = Math.max(z1, v.z);
+        }
+      });
+      if (!isFinite(x0) || !isFinite(z0)) return;
+      const ax = (x0 + x1) / 2, az = (z0 + z1) / 2;
+      meshes.forEach(o => {
+        const g = o.geometry, p = g.attributes.position;
+        const inv = new THREE.Matrix4().copy(o.matrixWorld).invert();
+        let touched = false;
+        for (let i = 0; i < p.count; i++) {
+          v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
+          if (v.y < yCut) {
+            const dx = v.x - ax, dz = v.z - az;
+            const r = Math.hypot(dx, dz);
+            if (r > rCut) {
+              const k = rCut / r;
+              v.set(ax + dx * k, v.y, az + dz * k);
+              v.applyMatrix4(inv);
+              p.setXYZ(i, v.x, v.y, v.z);
+              touched = true;
+            }
+          }
+        }
+        if (!touched) return;
+        p.needsUpdate = true;
+        // glTF accessors here share one interleaved buffer, in which case the upload flag lives on
+        // the buffer rather than the attribute view.
+        if (p.isInterleavedBufferAttribute && p.data) p.data.needsUpdate = true;
+        g.computeBoundingBox();
+        g.computeBoundingSphere();
+      });
+    }
+
     // Poly Haven models ship dozens of primitives that all end up wearing the single re-textured
     // material, and every primitive is its own draw call. Baking the hierarchy into one mesh is
     // what keeps the site inside the draw-call budget; if the attribute sets do not line up the
@@ -1411,7 +1475,7 @@
       const {
         x = 0, z = 0, y = 0, ry = 0, height = 1, repeat = 1,
         color = 0xffffff, metalness = 0.2, roughness = 0.9, normalScale = 1,
-        ownMaterials = false
+        ownMaterials = false, trimFlare: doTrimFlare = false
       } = opts;
       return new Promise(resolve => {
         if (ownMaterials) heroSlug = slug;
@@ -1443,6 +1507,7 @@
             ensureUv1Deep(root);
             mergeStaticProp(root, material);
           }
+          if (doTrimFlare) trimFlare(root);
           fitToGround(root, height);
           const holder = new THREE.Group();
           holder.name = `model:${slug}`;
@@ -1537,7 +1602,7 @@
 
     // --- The extinguisher itself: the real model rides inside the existing interaction group, so
     // the grip/trigger/pin logic and XR attachment keep working untouched.
-    loadModel('korean_fire_extinguisher_01', 'metal_plate', { height: 1.16, ownMaterials: true })
+    loadModel('korean_fire_extinguisher_01', 'metal_plate', { height: 1.16, ownMaterials: true, trimFlare: true })
       .then(holder => {
         if (!holder) return;
         holder.position.set(0, 0, 0);
@@ -3006,17 +3071,24 @@
         const hingeF = new THREE.Vector3().crossVectors(f, palm).normalize();
 
         // Each knuckle keeps the rotation it was authored with and gains a hinge about its own
-        // measured axis, re-expressed in that bone's local frame.
+        // measured axis, re-expressed in that bone's local frame. The hinge records which digit it
+        // belongs to, so the curl can be shaped finger by finger instead of clamping the whole hand.
         const hinges = [];
-        const hinge = (name, axis, max) => {
+        const hinge = (name, axis, max, digit) => {
           const b = joints.get(name);
           if (!b) return;
-          hinges.push({ bone: b, bind: b.quaternion.clone(), axis: axis.clone().applyQuaternion(rot(name).invert()).normalize(), max });
+          hinges.push({
+            bone: b,
+            digit,
+            bind: b.quaternion.clone(),
+            axis: axis.clone().applyQuaternion(rot(name).invert()).normalize(),
+            max
+          });
         };
-        FINGERS.forEach(name => {
-          hinge(`${name}-finger-phalanx-proximal`, hingeF, 1.30);
-          hinge(`${name}-finger-phalanx-intermediate`, hingeF, 1.55);
-          hinge(`${name}-finger-phalanx-distal`, hingeF, 0.80);
+        FINGERS.forEach((name, d) => {
+          hinge(`${name}-finger-phalanx-proximal`, hingeF, 1.30, d);
+          hinge(`${name}-finger-phalanx-intermediate`, hingeF, 1.55, d);
+          hinge(`${name}-finger-phalanx-distal`, hingeF, 0.80, d);
         });
         // The thumb folds across the palm rather than alongside the fingers, so it hinges about the
         // normal of its own direction.
@@ -3024,9 +3096,9 @@
         const thumbAxis = tProx && tTip
           ? new THREE.Vector3().crossVectors(tTip.clone().sub(tProx).normalize(), palm).normalize()
           : hingeF;
-        hinge('thumb-metacarpal', thumbAxis, 0.30);
-        hinge('thumb-phalanx-proximal', thumbAxis, 0.60);
-        hinge('thumb-phalanx-distal', thumbAxis, 0.95);
+        hinge('thumb-metacarpal', thumbAxis, 0.30, 4);
+        hinge('thumb-phalanx-proximal', thumbAxis, 0.60, 4);
+        hinge('thumb-phalanx-distal', thumbAxis, 0.95, 4);
 
         // Re-frame the rig so the wrist sits on the group origin, the fingers run up +Y and the palm
         // faces -Z. That is exactly the frame the modelled stand-in hand is built in, which is what
@@ -3043,9 +3115,15 @@
         });
 
         const q = new THREE.Quaternion();
-        function setCurl(k) {
-          const c = HAND_REST + (1 - HAND_REST) * THREE.MathUtils.clamp(k, 0, 1);
-          hinges.forEach(h => h.bone.quaternion.copy(h.bind).multiply(q.setFromAxisAngle(h.axis, h.max * c)));
+        // `bias` is a five-entry multiplier over [index, middle, ring, little, thumb] applied
+        // before the rest blend, so a bias above one drives a digit closer while the rest stay
+        // open - which is what a pinch is. Omitted, every digit closes together.
+        function setCurl(k, bias) {
+          hinges.forEach(h => {
+            const t = THREE.MathUtils.clamp(k * (bias ? bias[h.digit] : 1), 0, 1);
+            const c = HAND_REST + (1 - HAND_REST) * t;
+            h.bone.quaternion.copy(h.bind).multiply(q.setFromAxisAngle(h.axis, h.max * c));
+          });
         }
         setCurl(0);
         const hand = new THREE.Group();
@@ -3141,10 +3219,12 @@
         });
         curlSets.push({ joints: thumbJoints, angles: THUMB_CURL });
 
-        // 0 keeps the hand loose, 1 wraps it around the extinguisher handle.
-        function setCurl(k) {
-          const c = REST_BEND + (1 - REST_BEND) * THREE.MathUtils.clamp(k, 0, 1);
-          curlSets.forEach(({ joints, angles }) => {
+        // 0 keeps the hand loose, 1 wraps it around the extinguisher handle. `bias` shapes the
+        // close per digit, in the order the sets were pushed: index, middle, ring, little, thumb.
+        function setCurl(k, bias) {
+          curlSets.forEach(({ joints, angles }, d) => {
+            const t = THREE.MathUtils.clamp(k * (bias ? bias[d] : 1), 0, 1);
+            const c = REST_BEND + (1 - REST_BEND) * t;
             joints.forEach((j, i) => { j.rotation.x = -angles[i] * c; });
           });
         }
@@ -3202,7 +3282,7 @@
         cuff.position.y = -0.006;
         cuff.scale.set(0.94, 1, 0.68);
         forearm.add(cuff);
-        return { group: arm, grip, setCurl: k => slot.hand.setCurl(k) };
+        return { group: arm, wrist, grip, setCurl: (k, bias) => slot.hand.setCurl(k, bias) };
       }
       const playerRig = new THREE.Group();
       playerRig.name = 'player-viewmodel';
@@ -3219,13 +3299,30 @@
       // and returns to the body of the unit.
       const POSE_PIN_L = new THREE.Vector3(0.24, -0.04, -0.60);
       const POSE_PIN_OUT_L = new THREE.Vector3(0.02, -0.24, -0.44);
+      // Once the unit is actually discharging the support hand leaves the side of the can and comes
+      // in under the carrying wrist, which is how a two-handed extinguisher is really held.
+      const POSE_AIM_L = new THREE.Vector3(0.19, -0.19, -0.60);
+      // Digit multipliers, ordered [index, middle, ring, little, thumb]. These are what turn a
+      // uniform clamp into an actual grip: on the handle the index finger rides the squeeze lever
+      // and is deliberately held out of the curl, on the can the thumb hooks the rim instead of
+      // folding flat, and on the safety ring two digits pinch while the rest of the hand stays open.
+      const DIGITS = 5;
+      const BIAS_CARRY = [0.50, 1, 1, 0.90, 1];
+      const BIAS_TRIGGER = [0.20, 1, 1, 0.90, 1];
+      const BIAS_BRACE = [1, 1, 0.95, 0.85, 0.55];
+      const BIAS_PINCH = [3.2, 1.1, 0.95, 0.85, 2.8];
+      const biasR = new Array(DIGITS).fill(1), biasL = new Array(DIGITS).fill(1);
+      const setBias = (dst, a, b, u) => { for (let i = 0; i < DIGITS; i++) dst[i] = a[i] + (b[i] - a[i]) * u; };
       const pinHandPt = new THREE.Vector3();
-      let carryAmt = 0;
+      let carryAmt = 0, aimAmt = 0;
       function updateViewModel(dt, t) {
         const inXR = renderer.xr.isPresenting;
         playerRig.visible = !inXR;
         if (inXR) return;
         carryAmt += ((pickedUp ? 1 : 0) - carryAmt) * Math.min(1, dt * 5);
+        // Eased slower than the carry itself, so the unit has settled into the right hand before the
+        // left one moves in on it.
+        aimAmt += ((spraying ? 1 : 0) - aimAmt) * Math.min(1, dt * 3.2);
 
         // The free hand's part in the P.A.S.S. pull, read straight off the pin tween so the two can
         // never disagree about when the pin leaves the valve. It reaches, draws the pin out, holds
@@ -3245,12 +3342,39 @@
         const sway = Math.sin(t * 1.4) * 0.010 + Math.sin(t * 2.3) * 0.005;
         const tremor = spraying ? Math.sin(t * 41) * 0.004 + (Math.random() - 0.5) * 0.009 : 0;
         const kick = spraying ? 0.014 : 0;
-        // The fingers close onto the handle as it is collected, clamp tighter while the extinguisher
-        // is discharging, and let go of the grip while the free hand is busy with the pin.
-        armR.setCurl(Math.min(1, carryAmt + (spraying ? 0.10 : 0)));
-        armL.setCurl(Math.min(1, carryAmt + pinBlend * 0.75));
+
+        // The squeeze lever, worked by the index finger while the unit discharges. Blending between
+        // the carry and trigger bias tables pumps that one finger without disturbing the fist.
+        const trigger = spraying ? 0.5 - 0.5 * Math.cos(t * 9) : 0;
+        setBias(biasR, BIAS_CARRY, BIAS_TRIGGER, trigger);
+        // Closing all the way onto a 3 cm ring looks like grabbing a fistful of air, so the pin hand
+        // opens out to a two-finger pinch as it arrives and only wraps back up once it lets go.
+        const baseL = carryAmt * (1 - pinBlend * 0.7) + 0.30 * pinBlend;
+        setBias(biasL, BIAS_BRACE, BIAS_PINCH, pinBlend);
+        // The grip overshoots a little as it closes and settles back, so the fingers land on the
+        // handle rather than fading in on a crossfade.
+        const settle = carryAmt * (1 - carryAmt) * 0.55;
+        armR.setCurl(Math.min(1, carryAmt + aimAmt * 0.08 + settle), biasR);
+        armL.setCurl(Math.min(1, baseL + settle * 0.6), biasL);
+
         armR.group.rotation.y = -carryAmt * 0.14;
         armL.group.rotation.y = carryAmt * 0.18;
+
+        // The wrist pivots the whole lower arm - hand, glove and sleeve all hang off it - so pitching
+        // it here tilts the unit in the hand without ever opening the seam at the cuff. The carrying
+        // hand rolls the handle back towards the body as it takes the weight, and the discharge
+        // throws a little of that back on every pulse.
+        armR.wrist.rotation.set(
+          -0.26 * carryAmt + kick * 2.2,
+          -0.09 * carryAmt,
+          -0.05 * carryAmt - tremor * 1.4
+        );
+        // The pin hand turns the palm towards the valve as it reaches, then rolls the ring out.
+        armL.wrist.rotation.set(
+          -0.18 * carryAmt - 0.34 * pinBlend,
+          0.10 * carryAmt + 0.30 * pinBlend * (1 - pinDraw),
+          0.05 * carryAmt
+        );
 
         armR.group.position.copy(POSE_REST_R).lerp(POSE_HOLD_R, carryAmt);
         armR.group.position.x += sway + tremor * 0.6;
@@ -3258,6 +3382,7 @@
         armR.group.position.z += kick + tremor;
 
         armL.group.position.copy(POSE_REST_L).lerp(POSE_HOLD_L, carryAmt);
+        if (aimAmt > 0.001) armL.group.position.lerp(POSE_AIM_L, aimAmt);
         if (pinBlend > 0.001) {
           pinHandPt.copy(POSE_PIN_L).lerp(POSE_PIN_OUT_L, pinDraw);
           armL.group.position.lerp(pinHandPt, pinBlend);
