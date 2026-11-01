@@ -441,6 +441,7 @@
     // GLTFLoader so compressed assets are handled automatically wherever they appear.
     const ASSET_CDN = {
       models: 'https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/',
+      modelTex: 'https://dl.polyhaven.org/file/ph-assets/Models/jpg/',
       textures: 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/',
       hdri: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/textures/equirectangular/',
       samples: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/models/gltf/'
@@ -454,15 +455,39 @@
 
     // Poly Haven's glTF CDN serves geometry + .bin but not the per-model texture folder, so
     // per-model image requests are redirected to a neutral placeholder and the real Poly Haven
-    // PBR material sets are applied to the loaded geometry instead (see pbrMaterial()).
+    // PBR material sets are applied to the loaded geometry instead (see pbrMaterial()). That is the
+    // right trade for the site props - nine maps per prop that would only be discarded - but the
+    // extinguisher is a hero prop that keeps its own baked paint and printed label, so it loads
+    // through a second loader whose manager resolves the model's real maps from Models/jpg/<size>/
+    // <slug>/, where Poly Haven publishes them under the same file names one folder up.
     const PLACEHOLDER_TEX = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+    const PH_MODEL_TEX = /^(.*)_(diff|nor_gl|nor_dx|rough|metal|arm|ao|opacity)_(\d+k)\.(jpe?g|png)$/i;
+    const PH_MODEL_REQ = /(?:^|\/)(?:textures|texture)\/([^/]+)$/;
+
     const modelManager = new THREE.LoadingManager();
-    modelManager.setURLModifier(url => (/\/textures\//.test(url) ? PLACEHOLDER_TEX : url));
+    modelManager.setURLModifier(url => (PH_MODEL_REQ.test(url) ? PLACEHOLDER_TEX : url));
+
+    // The reference three hands this modifier is the texture URI resolved against the glTF's own
+    // folder, but that resolution is not something to depend on, so the manager is told which model
+    // it is serving and keys off the file name alone - which is identical in the published folder.
+    let heroSlug = '';
+    const heroManager = new THREE.LoadingManager();
+    heroManager.setURLModifier(url => {
+      const m = PH_MODEL_REQ.exec(url);
+      if (!m || !heroSlug) return url;
+      const hit = PH_MODEL_TEX.exec(m[1]);
+      return hit ? `${ASSET_CDN.modelTex}${hit[3]}/${heroSlug}/${m[1]}` : PLACEHOLDER_TEX;
+    });
 
     const gltfLoader = new GLTFLoader(modelManager);
     gltfLoader.setDRACOLoader(dracoLoader);
     gltfLoader.setKTX2Loader(ktx2Loader);
     gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+
+    const heroLoader = new GLTFLoader(heroManager);
+    heroLoader.setDRACOLoader(dracoLoader);
+    heroLoader.setKTX2Loader(ktx2Loader);
+    heroLoader.setMeshoptDecoder(MeshoptDecoder);
 
     const texLoader = new THREE.TextureLoader();
     texLoader.setCrossOrigin('anonymous');
@@ -1228,20 +1253,39 @@
     function loadModel(slug, materialSlug, opts = {}) {
       const {
         x = 0, z = 0, y = 0, ry = 0, height = 1, repeat = 1,
-        color = 0xffffff, metalness = 0.2, roughness = 0.9, normalScale = 1
+        color = 0xffffff, metalness = 0.2, roughness = 0.9, normalScale = 1,
+        ownMaterials = false
       } = opts;
       return new Promise(resolve => {
-        gltfLoader.load(`${ASSET_CDN.models}${slug}/${slug}_1k.gltf`, gltf => {
+        if (ownMaterials) heroSlug = slug;
+        (ownMaterials ? heroLoader : gltfLoader).load(`${ASSET_CDN.models}${slug}/${slug}_1k.gltf`, gltf => {
           const root = gltf.scene;
-          const material = pbrMaterial(materialSlug, { repeat, color, metalness, roughness, normalScale });
-          root.traverse(o => {
-            if (!o.isMesh) return;
-            o.material = material;
-            o.castShadow = true;
-            o.receiveShadow = true;
-          });
-          ensureUv1Deep(root);
-          mergeStaticProp(root, material);
+          if (ownMaterials) {
+            // Hero props (the extinguisher) keep the artist's own baked body/glass/paper materials
+            // that arrive through the model-texture URL modifier; merging is skipped because those
+            // primitives carry different maps.
+            root.traverse(o => {
+              if (!o.isMesh) return;
+              o.castShadow = true;
+              o.receiveShadow = true;
+              const mats = Array.isArray(o.material) ? o.material : [o.material];
+              mats.forEach(m => {
+                if (!m) return;
+                m.side = THREE.DoubleSide;
+                if ('envMapIntensity' in m) m.envMapIntensity = 0.9;
+              });
+            });
+          } else {
+            const material = pbrMaterial(materialSlug, { repeat, color, metalness, roughness, normalScale });
+            root.traverse(o => {
+              if (!o.isMesh) return;
+              o.material = material;
+              o.castShadow = true;
+              o.receiveShadow = true;
+            });
+            ensureUv1Deep(root);
+            mergeStaticProp(root, material);
+          }
           fitToGround(root, height);
           const holder = new THREE.Group();
           holder.name = `model:${slug}`;
@@ -1336,7 +1380,7 @@
 
     // --- The extinguisher itself: the real model rides inside the existing interaction group, so
     // the grip/trigger/pin logic and XR attachment keep working untouched.
-    loadModel('korean_fire_extinguisher_01', 'metal_plate', { height: 1.16, repeat: 1, color: 0xc62828, metalness: 0.45, roughness: 0.45 })
+    loadModel('korean_fire_extinguisher_01', 'metal_plate', { height: 1.16, ownMaterials: true })
       .then(holder => {
         if (!holder) return;
         holder.position.set(0, 0, 0);
@@ -2377,9 +2421,13 @@
 
       // --- Site workers: rigged, animated glTF characters wearing construction PPE, patrolling the
       // site so it reads as a live site rather than a diorama, and evacuating to the assembly point
-      // once the alarm is raised. Each worker is a skeletonClone() of a shared source so three
-      // characters cost two downloads, and the mixer crossfades idle <-> walk <-> run.
-      const workerUrls = [
+      // once the alarm is raised. Each worker is a skeletonClone() of a shared source, so the whole
+      // crew costs one download, and the mixer crossfades idle <-> walk <-> run.
+      // The crew is one realistic, fully rigged CC0 human (Innerscene "Sam", public domain) rather
+      // than the three.js sample rigs: real proportions, 56 joints and proper locomotion clips.
+      const CREW_URL = './public/assets/models/worker.glb';
+      // Stand-in rigs, only used if the crew file is not served alongside index.html.
+      const CREW_FALLBACKS = [
         `${ASSET_CDN.samples}Soldier.glb`,
         `${ASSET_CDN.samples}Xbot.glb`,
         `${ASSET_CDN.samples}Soldier.glb`
@@ -2389,8 +2437,10 @@
         if (!workerSource.has(url)) workerSource.set(url, new Promise(res => gltfLoader.load(url, res, undefined, () => res(null))));
         return workerSource.get(url);
       }
+      const crewPromise = workerGltf(CREW_URL);
+      const crewGltf = i => crewPromise.then(g => g || workerGltf(CREW_FALLBACKS[i]));
 
-      // One PPE kit shared by the whole crew, so the three workers read as one crew: fluorescent
+      // One PPE kit shared by the whole crew, so the workers read as one gang: fluorescent
       // hi-vis vest with retro-reflective banding, industrial-yellow shell helmet, leather mitten
       // gloves and reflective bands over the boots.
       const ppe = {
@@ -2437,6 +2487,39 @@
         return g;
       }
 
+      // The crew model ships dressed as a civilian. Deleting the clothes would leave an uncovered
+      // body, so the garments are re-surfaced instead as one gang's workwear: the casual top becomes
+      // a hi-vis work jacket, the bottoms dark work trousers, the street shoes dark boots, and the
+      // phone in the hand is hidden outright (unless it is one of the sample stand-in rigs, whose
+      // mesh names match none of these patterns - the pass is then a no-op).
+      const CREW_HIDE = /phone|held accessory/i;
+      const CREW_WEAR = [
+        { re: /casualsuit/i, color: 0xf25a12, roughness: 0.62, metalness: 0.02 },
+        { re: /short01|trouser|jeans/i, color: 0x2b3642, roughness: 0.88, metalness: 0.02 },
+        { re: /shoes|boot/i, color: 0x342519, roughness: 0.72, metalness: 0.04 }
+      ];
+      function dressCrewUniform(model) {
+        const seen = new Set();
+        model.traverse(o => {
+          if (!o.isMesh) return;
+          if (CREW_HIDE.test(o.name)) { o.visible = false; return; }
+          const wear = CREW_WEAR.find(w => w.re.test(o.name));
+          if (!wear) return;
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach(m => {
+            if (!m || seen.has(m.uuid)) return;
+            seen.add(m.uuid);
+            // The uniform is flat workwear, not the baked casual print, so the map is dropped and
+            // the tint carries the colour.
+            m.map = null;
+            m.color.setHex(wear.color);
+            m.roughness = wear.roughness;
+            m.metalness = wear.metalness;
+            m.needsUpdate = true;
+          });
+        });
+      }
+
       // Dresses a loaded rig. The kit is authored in metres, which is valid because the model has
       // just been normalised to 1.78 m, and it is anchored to the rig's own bones where they exist
       // (hips/head/hands/feet) and to the bounding box otherwise, so one kit fits both characters.
@@ -2444,12 +2527,14 @@
         g.updateWorldMatrix(true, true);
         const bones = new Map();
         model.traverse(o => { if (o.isBone) bones.set(o.name.toLowerCase(), o); });
-        // Prefer the bone whose name *ends* with the keyword and is otherwise shortest, so
-        // mixamorigHead wins over mixamorigHeadTop_End.
-        const bone = key => {
+        // Prefer the bone whose name *ends* with one of the keywords and is otherwise shortest, so
+        // mixamorigHead wins over mixamorigHeadTop_End. Rig naming differs: the mixamo rigs use
+        // mixamorigHips / LeftHand / LeftFoot, the crew rig uses pelvis / hand_l / foot_l, so every
+        // anchor carries its aliases.
+        const bone = keys => {
           let best = null;
           bones.forEach((b, name) => {
-            if (!name.endsWith(key)) return;
+            if (!keys.some(k => name.endsWith(k))) return;
             if (!best || name.length < best.name.length) best = b;
           });
           return best;
@@ -2461,10 +2546,17 @@
         const gQuatInv = g.getWorldQuaternion(new THREE.Quaternion()).invert();
         const boneQuat = b => gQuatInv.clone().multiply(b.getWorldQuaternion(new THREE.Quaternion()));
         const scratch = new THREE.Vector3();
-        const anchors = { hips: null, head: null, leftHand: null, rightHand: null, leftFoot: null, rightFoot: null };
-        ['hips', 'head', 'lefthand', 'righthand', 'leftfoot', 'rightfoot'].forEach((k, i) => {
-          const key = Object.keys(anchors)[i];
-          const b = bone(k);
+        const anchorBones = {
+          hips: ['hips', 'pelvis'],
+          head: ['head'],
+          leftHand: ['lefthand', 'hand_l'],
+          rightHand: ['righthand', 'hand_r'],
+          leftFoot: ['leftfoot', 'foot_l'],
+          rightFoot: ['rightfoot', 'foot_r']
+        };
+        const anchors = {};
+        Object.keys(anchorBones).forEach(key => {
+          const b = bone(anchorBones[key]);
           anchors[key] = b ? { p: toG(b.getWorldPosition(scratch.set(0, 0, 0))), q: boneQuat(b) } : null;
         });
 
@@ -2494,11 +2586,15 @@
         });
       }
 
+      // Three characters walk the site on desktop and Quest 3; the Quest 2 and Quest 1 budgets carry
+      // two, because the realistic crew rig is 93k triangles a head and the mobile LOD pass only
+      // simplifies static props, not skinned geometry.
+      const crewCount = tierPick({ desktop: 3, quest3: 3, quest2: 2, quest1: 2 }, 2);
       const workers = [
         { home: [-4.2, -1.2], spin: 0.4, route: [[-5.8, 1.6], [-2.4, -3.2]], dest: [8.8, 7.6] },
         { home: [6.8, -1.6], spin: 2.6, route: [[6.0, 2.0], [8.4, -3.8]], dest: [10.2, 6.6] },
         { home: [0.2, -9.0], spin: 1.2, route: [[-1.8, -8.0], [2.6, -9.8]], dest: [9.4, 8.8] }
-      ].map((cfg, i) => {
+      ].slice(0, crewCount).map((cfg, i) => {
         const g = new THREE.Group(); g.name = `worker-${i}`;
         add(g, cfg.home[0], 0, cfg.home[1], cfg.spin);
         // A contact shadow travels with the character: the shadow map alone cannot resolve the few
@@ -2524,13 +2620,14 @@
           if (w.run) w.run.weight = 0;
           if (w.idle) w.idle.weight = 1;
         };
-        workerGltf(workerUrls[i]).then(gltf => {
+        crewGltf(i).then(gltf => {
           if (!gltf) return;
           const model = skeletonClone(gltf.scene);
           model.traverse(o => {
             if (!o.isMesh) return;
             o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
           });
+          dressCrewUniform(model);
           const bb = new THREE.Box3().setFromObject(model);
           const h = bb.max.y - bb.min.y;
           const normalised = h > 0.2;
@@ -2935,25 +3032,34 @@
               return s;
             }
             void main() {
-              vec3 ray = vLocal - uCam;
-              float len = max( length( ray ), 1e-4 );
-              vec3 rd = ray / len;
-              float stride = len / 40.0;
-              vec3 p = uCam;
+              vec3 rd = normalize( vLocal - uCam );
+              // Slab-method ray/box intersection. The march is spread across the *volume*, not across
+              // the whole camera distance: with distance-proportional spacing the samples become
+              // coarser than the volume itself and the fire washes out or disappears at range and at
+              // grazing angles.
+              vec3 inv = 1.0 / rd;
+              vec3 ta = ( -uHalf - uCam ) * inv;
+              vec3 tb = (  uHalf - uCam ) * inv;
+              vec3 lo = min( ta, tb );
+              vec3 hi = max( ta, tb );
+              float t0 = max( max( lo.x, lo.y ), lo.z );
+              float t1 = min( min( hi.x, hi.y ), hi.z );
+              t0 = max( t0, 0.0 );
+              if ( t1 <= t0 ) discard;                       // ray misses the volume entirely
+              float stride = ( t1 - t0 ) / 40.0;
+              vec3 p = uCam + rd * ( t0 + stride * 0.5 );
               vec3 acc = vec3( 0.0 );
               float dens = 0.0;
               for ( int i = 0; i < 40; i ++ ) {
-                p += rd * stride;
                 vec3 q = p / uHalf;
-                if ( all( lessThan( abs( q ), vec3( 1.0 ) ) ) ) {
-                  float up = clamp( 1.0 - ( q.y + 1.0 ) * 0.5, 0.0, 1.0 );
-                  float d = fbm( vec3( q.x * 2.4, q.y * 2.4 - uTime * 2.6, q.z * 2.4 ) ) * 1.55;
-                  d -= up * 2.0;
-                  d -= length( q.xz ) * 1.3;
-                  d = max( d, 0.0 ) * ( 0.3 + 0.7 * uI );
-                  acc += vec3( 1.0, 0.40, 0.10 ) * d * stride * 2.4;
-                  dens += d * stride * 1.5;
-                }
+                float up = clamp( 1.0 - ( q.y + 1.0 ) * 0.5, 0.0, 1.0 );
+                float d = fbm( vec3( q.x * 2.4, q.y * 2.4 - uTime * 2.6, q.z * 2.4 ) ) * 1.55;
+                d -= up * 2.0;
+                d -= length( q.xz ) * 1.3;
+                d = max( d, 0.0 ) * ( 0.3 + 0.7 * uI );
+                acc += vec3( 1.0, 0.40, 0.10 ) * d * stride * 2.4;
+                dens += d * stride * 1.5;
+                p += rd * stride;
               }
               vec3 col = mix( acc, vec3( 1.0, 0.93, 0.74 ), clamp( dens * 0.9, 0.0, 0.8 ) );
               gl_FragColor = vec4( col, clamp( dens, 0.0, 1.0 ) );
