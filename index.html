@@ -11,7 +11,8 @@
   <script type="importmap">
   { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+      "postprocessing": "https://cdn.jsdelivr.net/npm/postprocessing@6.36.0/build/index.js"
   } }
   </script>
   <style>
@@ -81,6 +82,16 @@
     .hidden { display: none !important; }
     .toast { position: fixed; top: 82px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,16,22,.92); border: 1px solid var(--panel-border); border-radius: 11px; padding: 11px 15px; font-size: 12px; max-width: calc(100vw - 30px); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
     .result-score { font-size: 42px; letter-spacing: -.05em; font-weight: 900; color: var(--good); margin: 5px 0 10px; font-family: "JetBrains Mono", ui-monospace, monospace; }
+    /* Enter-VR entry point (created by VRButton) restyled to match the HUD chrome. */
+    #VRButton {
+      position: fixed !important; left: auto !important; right: 20px !important; bottom: 22px !important;
+      width: auto !important; padding: 10px 14px !important; z-index: 6 !important;
+      border: 1px solid var(--panel-border) !important; border-radius: 11px !important;
+      background: var(--panel) !important; color: var(--text) !important; backdrop-filter: blur(12px) !important;
+      font: 800 11px/1 Inter, ui-sans-serif, system-ui, sans-serif !important;
+      letter-spacing: .12em !important; text-transform: uppercase !important; text-decoration: none !important; text-align: center !important;
+    }
+    #VRButton:hover { border-color: var(--accent) !important; background: rgba(85,199,232,.16) !important; }
     @media (max-width: 620px) {
       .topbar { top: 10px; left: 10px; right: 10px; }
       .brand { padding: 8px 10px; }
@@ -156,6 +167,7 @@
       <h1>Respond with<br>confidence.</h1>
       <p>Explore a construction-site scenario, locate the extinguisher and interact with a simulated fire. This is an early visual prototype showing the intended direction for the Re-EL firefighting training experience.</p>
       <p><strong style="color:#f5f8fa">Desktop controls:</strong> WASD to move, mouse to look, E to collect the extinguisher, and hold the left mouse button to simulate discharge after collecting it. Optionally press E at the red call point first to raise the alarm, and keep a safe distance (3–5 m) from the heat.</p>
+      <p><strong style="color:#f5f8fa">Meta Quest (WebXR):</strong> open this page in Quest Browser and tap <em>Enter VR</em> (bottom-right). The left thumbstick moves, the right snap-turns, pressing a thumbstick teleports, the grip collects the extinguisher and pulls the safety pin, and the trigger discharges. Objectives and meters ride on your left wrist.</p>
       <div class="modal-actions">
         <button class="primary" id="startBtn">Enter simulation →</button>
         <button class="secondary" id="guidedBtn">Start guided demo</button>
@@ -180,11 +192,27 @@
 
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js';
-    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    // --- Asset loaders: glTF with Draco / KTX2-Basis / meshopt, HDR + EXR environments
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+    import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+    import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+    import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+    // --- Cascaded shadow maps, skinned-mesh cloning, geometry merging
+    import { CSM } from 'three/addons/csm/CSM.js';
+    import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
+    import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+    // --- WebXR
+    import { VRButton } from 'three/addons/webxr/VRButton.js';
+    import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+    // --- pmndrs/postprocessing stack (SSAO, DoF, LUT grading, grain, SMAA, bloom)
+    import {
+      EffectComposer, RenderPass, EffectPass, NormalPass, Effect,
+      BloomEffect, SMAAEffect, SMAAPreset, SSAOEffect, DepthOfFieldEffect,
+      ToneMappingEffect, ToneMappingMode, LUT3DEffect, NoiseEffect, VignetteEffect,
+      BlendFunction, KernelSize
+    } from 'postprocessing';
 
     const container = document.getElementById('scene');
     const ui = {
@@ -206,6 +234,42 @@
       result: document.getElementById('resultModal')
     };
 
+    // ===================== QUALITY TIERS =====================
+    // Every visual upgrade below is gated by this object. Quest 1 is the performance
+    // floor: build for it first, then let Quest 2 and desktop scale up.
+    function detectTierName() {
+      const ua = navigator.userAgent || '';
+      if (!/OculusBrowser|Quest/i.test(ua)) return 'desktop';
+      // Anything newer than Quest 1 (Quest 2 / Pro / 3) gets the mid tier.
+      if (/Quest 2|Quest Pro|Quest 3/i.test(ua)) return 'quest2';
+      return 'quest1';
+    }
+    const QUALITY_TIERS = {
+      desktop: {
+        label: 'Desktop', pixelRatio: Math.min(window.devicePixelRatio, 1.7),
+        antialias: true, shadowMapSize: 2048, postFX: true, bloom: true,
+        softParticles: true, volumetric: true,
+        particleScale: 1, textureSize: 1024, foveation: 0, framebufferScale: 1,
+        moveSpeed: 3.0, snapAngle: Math.PI / 6, teleport: true
+      },
+      quest2: {
+        label: 'Quest 2', pixelRatio: 1,
+        antialias: true, shadowMapSize: 1024, postFX: false, bloom: false,
+        softParticles: false, volumetric: false,
+        particleScale: 0.5, textureSize: 512, foveation: 1, framebufferScale: 0.9,
+        moveSpeed: 2.6, snapAngle: Math.PI / 4, teleport: true
+      },
+      quest1: {
+        label: 'Quest 1', pixelRatio: 1,
+        antialias: false, shadowMapSize: 1024, postFX: false, bloom: false,
+        softParticles: false, volumetric: false,
+        particleScale: 0.35, textureSize: 512, foveation: 1, framebufferScale: 0.8,
+        moveSpeed: 2.4, snapAngle: Math.PI / 4, teleport: true
+      }
+    };
+    const tierName = detectTierName();
+    const tier = QUALITY_TIERS[tierName];
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x9ab7c5);
     scene.fog = new THREE.Fog(0x9ab7c5, 22, 65);
@@ -214,51 +278,390 @@
     camera.position.set(0, 1.7, 9);
     camera.rotation.order = 'YXZ';
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+    // In XR you may not set the camera position: everything moves the dolly instead.
+    const dolly = new THREE.Group();
+    dolly.name = 'camera-dolly';
+    dolly.add(camera);
+    scene.add(dolly);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: tier.antialias, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(tier.pixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
+    renderer.xr.enabled = true;
     container.appendChild(renderer.domElement);
 
     scene.add(new THREE.HemisphereLight(0xd8efff, 0x51483b, 2.0));
     const sun = new THREE.DirectionalLight(0xffedcf, 2.6);
     sun.position.set(-9, 16, 7);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(tier.shadowMapSize, tier.shadowMapSize);
     scene.add(sun);
 
-    const mat = (color, roughness = 0.85, metalness = 0) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
-    const materials = {
-      concrete: mat(0x858c8d),
-      concreteLight: mat(0xb7b7ad),
-      dark: mat(0x29333a),
-      steel: mat(0x687780, 0.45, 0.5),
-      wood: mat(0x9a7048),
-      yellow: mat(0xf0b82d),
-      white: mat(0xe8e8e2),
-      red: mat(0xc62828),
-      black: mat(0x202629),
-      blue: mat(0x1f5269),
-      orange: mat(0xef7d32),
-      green: mat(0x4e8666)
+    // ===================== ASSET PIPELINE =====================
+    // Models, PBR texture sets and HDRIs are streamed from public, CORS-enabled CDNs at
+    // runtime: Poly Haven (CC0) for models + textures, three.js samples for HDRIs, rigged
+    // characters and KTX2 sample data. Draco / KTX2-Basis / meshopt decoders are wired into
+    // GLTFLoader so compressed assets are handled automatically wherever they appear.
+    const ASSET_CDN = {
+      models: 'https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/',
+      textures: 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/',
+      hdri: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/textures/equirectangular/',
+      samples: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/models/gltf/'
     };
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), mat(0x777f7d));
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+    const ktx2Loader = new KTX2Loader();
+    ktx2Loader.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/libs/basis/');
+    ktx2Loader.detectSupport(renderer);
+
+    // Poly Haven's glTF CDN serves geometry + .bin but not the per-model texture folder, so
+    // per-model image requests are redirected to a neutral placeholder and the real Poly Haven
+    // PBR material sets are applied to the loaded geometry instead (see pbrMaterial()).
+    const PLACEHOLDER_TEX = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+    const modelManager = new THREE.LoadingManager();
+    modelManager.setURLModifier(url => (/\/textures\//.test(url) ? PLACEHOLDER_TEX : url));
+
+    const gltfLoader = new GLTFLoader(modelManager);
+    gltfLoader.setDRACOLoader(dracoLoader);
+    gltfLoader.setKTX2Loader(ktx2Loader);
+    gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+
+    const texLoader = new THREE.TextureLoader();
+    texLoader.setCrossOrigin('anonymous');
+    const hdrLoader = new RGBELoader();
+    const exrLoader = new EXRLoader();
+    const MAX_ANISOTROPY = renderer.capabilities.getMaxAnisotropy();
+
+    // Quest tiers get 512px PBR maps (the roadmap's texture budget). The CDN only publishes
+    // 1K sets, so they are downsampled once after decode.
+    function downscaleTexture(texture, size) {
+      const img = texture.image;
+      if (!img || !img.width) return;
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      c.getContext('2d').drawImage(img, 0, 0, size, size);
+      texture.image = c;
+      texture.needsUpdate = true;
+    }
+    const pbrTexCache = new Map();
+    function loadPbrTexture(slug, kind, repeat, aniso = 8) {
+      const key = `${slug}|${kind}|${repeat}`;
+      const cached = pbrTexCache.get(key);
+      if (cached) return cached;
+      const tex = texLoader.load(`${ASSET_CDN.textures}${slug}/${slug}_${kind}_1k.jpg`);
+      tex.name = key;
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(repeat, repeat);
+      tex.anisotropy = Math.min(aniso, MAX_ANISOTROPY);
+      if (kind === 'diff') tex.colorSpace = THREE.SRGBColorSpace;
+      if (tier.textureSize < 1024) tex.onLoad = t => downscaleTexture(t, tier.textureSize);
+      pbrTexCache.set(key, tex);
+      return tex;
+    }
+    // Slugs that do not publish a packed AO/roughness/metalness (arm) map on the CDN.
+    const NO_ARM = { gravel_concrete: true };
+    function pbrMaterial(slug, { repeat = 1, color = 0xffffff, roughness = 1, metalness = 1, normalScale = 1, aniso = 8 } = {}) {
+      const m = trackLit(new THREE.MeshStandardMaterial({ color, roughness, metalness }));
+      m.name = `pbr:${slug}`;
+      m.map = loadPbrTexture(slug, 'diff', repeat, aniso);
+      m.normalMap = loadPbrTexture(slug, 'nor_gl', repeat, aniso);
+      m.normalScale.setScalar(normalScale);
+      if (NO_ARM[slug]) {
+        m.roughnessMap = loadPbrTexture(slug, 'rough', repeat, aniso);
+        m.aoMap = loadPbrTexture(slug, 'ao', repeat, aniso);
+      } else {
+        const arm = loadPbrTexture(slug, 'arm', repeat, aniso);
+        m.roughnessMap = arm; m.metalnessMap = arm; m.aoMap = arm;
+      }
+      m.aoMapIntensity = 0.9;
+      return m;
+    }
+    // aoMap samples the second UV channel; primitive and glTF geometry only carries uv0.
+    function ensureUv1(geometry) {
+      if (geometry && geometry.attributes.uv && !geometry.attributes.uv1) {
+        geometry.setAttribute('uv1', geometry.attributes.uv);
+      }
+    }
+    function ensureUv1Deep(root) {
+      root.traverse(o => { if (o.isMesh && o.geometry) ensureUv1(o.geometry); });
+    }
+
+    // Every lit material in the scene is funnelled through trackLit(). Desktop runs cascaded
+    // shadow maps and CSM injects its shader chunks through setupMaterial(), so any material
+    // that appears while csm exists is registered immediately; csmRegister() catches whole
+    // subtrees that arrive later (loaded glTF props, merged/instanced batches).
+    let csm = null;
+    const litMaterials = new Set();
+    function trackLit(m) {
+      litMaterials.add(m);
+      if (csm && !csm.shaders.has(m)) csm.setupMaterial(m);
+      return m;
+    }
+    function csmRegister(root) {
+      root.traverse(o => {
+        if (!o.isMesh) return;
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+          if (m && m.isMeshStandardMaterial && !litMaterials.has(m)) trackLit(m);
+        });
+      });
+    }
+
+    // --- Cascaded shadow maps (desktop only)
+    // The Quest tiers keep the single 1024 shadow-casting sun they were budgeted for; desktop
+    // gets three cascades whose direction is re-derived from the HDRI below. The plain sun is
+    // hidden while CSM is active so the site is not lit twice.
+    if (tier.postFX) {
+      csm = new CSM({
+        camera, parent: scene, cascades: 3, mode: 'practical', maxFar: 90,
+        shadowMapSize: tier.shadowMapSize,
+        lightDirection: new THREE.Vector3(0.45, -0.72, -0.35).normalize(),
+        lightIntensity: 2.2
+      });
+      sun.visible = false;
+    }
+
+    const mat = (color, roughness = 0.85, metalness = 0) => trackLit(new THREE.MeshStandardMaterial({ color, roughness, metalness }));
+    // Albedo, normal, roughness and AO now come from real Poly Haven sets; the colour stays as
+    // a tint so the site's alarm palette still reads. This replaces the procedural grain() maps.
+    const materials = {
+      concrete: pbrMaterial('concrete_wall_008', { repeat: 2, color: 0xb9bfbc, metalness: 0.02 }),
+      concreteLight: pbrMaterial('concrete_wall_008', { repeat: 2, color: 0xd2d3c8, metalness: 0.02 }),
+      dark: pbrMaterial('metal_plate', { repeat: 2, color: 0x3a4247, metalness: 0.7, normalScale: 0.7 }),
+      steel: pbrMaterial('metal_plate', { repeat: 2, color: 0x8d99a1, metalness: 0.9 }),
+      wood: pbrMaterial('wood_planks_grey', { repeat: 2, color: 0xb08a5e, metalness: 0 }),
+      rusty: pbrMaterial('rusty_metal_02', { repeat: 2, color: 0xc0a898, metalness: 0.8 }),
+      yellow: pbrMaterial('metal_plate', { repeat: 2, color: 0xf0b82d, metalness: 0.35 }),
+      white: pbrMaterial('concrete_wall_008', { repeat: 2, color: 0xe8e8e2, metalness: 0.02 }),
+      red: pbrMaterial('metal_plate', { repeat: 2, color: 0xc62828, metalness: 0.35 }),
+      black: pbrMaterial('metal_plate', { repeat: 2, color: 0x202629, metalness: 0.5 }),
+      blue: pbrMaterial('metal_plate', { repeat: 3, color: 0x2f6f9f, metalness: 0.45 }),
+      orange: pbrMaterial('metal_plate', { repeat: 2, color: 0xef7d32, metalness: 0.3 }),
+      green: pbrMaterial('metal_plate', { repeat: 2, color: 0x4e8666, metalness: 0.3 }),
+      asphalt: pbrMaterial('asphalt_02', { repeat: 8, color: 0x8f9490, metalness: 0.02 }),
+      dirt: pbrMaterial('dirt_aerial_02', { repeat: 3, color: 0xa89b85, metalness: 0 })
+    };
+
+    // Varied terrain instead of a flat plane: the work area stays dead level so locomotion and
+    // teleport stay predictable, and the ground rolls away into the distance beyond ~18 m.
+    function terrainNoise(x, z) {
+      return (Math.sin(x * 0.061) * Math.cos(z * 0.053)
+        + Math.sin(x * 0.017 + z * 0.021) * 1.6
+        + Math.cos(x * 0.11 - z * 0.09) * 0.45) / 3.05;
+    }
+    const groundSegments = tierName === 'quest1' ? 48 : tierName === 'quest2' ? 64 : 110;
+    const groundGeo = new THREE.PlaneGeometry(260, 260, groundSegments, groundSegments);
+    {
+      const pos = groundGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i);
+        const blend = THREE.MathUtils.smoothstep(Math.hypot(x, y), 18, 52);
+        pos.setZ(i, terrainNoise(x, y) * 3.4 * blend);
+      }
+      pos.needsUpdate = true;
+      groundGeo.computeVertexNormals();
+      ensureUv1(groundGeo);
+    }
+    const ground = new THREE.Mesh(groundGeo, pbrMaterial('gravel_concrete', { repeat: 26, color: 0x9ea4a2, metalness: 0 }));
+    ground.name = 'ground';
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.05;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // Subtle floor grid to give the scene scale without making it visually busy.
-    const grid = new THREE.GridHelper(60, 60, 0x9ca4a0, 0x858e8a);
-    grid.position.y = -0.035;
-    grid.material.transparent = true;
-    grid.material.opacity = 0.22;
-    scene.add(grid);
+    // Painted hazard markings and a levelled slab replace the old debug grid.
+    function pbrCanvas(w, h, draw, repeatX = 1, repeatY = 1) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      draw(c.getContext('2d'), w, h);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(repeatX, repeatY);
+      t.anisotropy = Math.min(8, MAX_ANISOTROPY);
+      return t;
+    }
+    const hazardTex = pbrCanvas(64, 64, (g, w, h) => {
+      g.fillStyle = '#d9a521'; g.fillRect(0, 0, w, h);
+      g.strokeStyle = '#20221f'; g.lineWidth = 13;
+      for (let i = -h; i < w + h; i += 26) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + h, h); g.stroke(); }
+      g.globalAlpha = 0.16; g.fillStyle = '#3a3a34';
+      for (let i = 0; i < 900; i++) g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+    });
+    function marking(x, z, w, d, ry = 0) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), trackLit(new THREE.MeshStandardMaterial({
+        map: hazardTex.clone(), transparent: true, roughness: 0.8, metalness: 0,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+      })));
+      m.material.map.repeat.set(Math.max(1, Math.round(w / 0.5)), 1);
+      m.material.map.needsUpdate = true;
+      m.rotation.set(-Math.PI / 2, 0, ry);
+      m.position.set(x, 0.005, z);
+      m.receiveShadow = true;
+      scene.add(m);
+      return m;
+    }
+    marking(0, 3.4, 13, 0.55);
+    marking(-4.6, -3.4, 0.55, 8.4);
+    marking(6.4, -3.4, 0.55, 8.4);
+    marking(0, -9.6, 9, 0.55);
+
+    // --- Ground detail: scorch, wet patches, grime and contact shadows ------------------------
+    // Every flat mark on the slab is a decal: a textured quad lifted a few millimetres off the
+    // ground with polygonOffset so it can never z-fight, the same trick the hazard markings use.
+    // The repeats are batched into InstancedMesh, so the whole layer costs a handful of draw calls
+    // rather than one per patch - which is what keeps it inside the Quest budget.
+    const DECAL_Y = 0.007;
+    function decalTex(size, draw, srgb = false) {
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      const g = c.getContext('2d');
+      draw(g, size);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+      t.anisotropy = Math.min(4, MAX_ANISOTROPY);
+      return t;
+    }
+    // Soft blobs are the one primitive every decal map below is built from.
+    function blobs(g, size, n, radius, paint) {
+      for (let i = 0; i < n; i++) {
+        const x = size * (0.5 + (Math.random() - 0.5) * 0.74);
+        const y = size * (0.5 + (Math.random() - 0.5) * 0.74);
+        const r = size * radius * (0.45 + Math.random());
+        const gr = g.createRadialGradient(x, y, 0, x, y, r);
+        paint(gr);
+        g.fillStyle = gr;
+        g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill();
+      }
+    }
+
+    // Soot left where the fire has been burning.
+    const scorchTex = decalTex(128, (g, s) => {
+      blobs(g, s, 26, 0.4, gr => {
+        const a = 0.16 + Math.random() * 0.3;
+        gr.addColorStop(0, `rgba(22,17,13,${a})`);
+        gr.addColorStop(0.55, `rgba(30,24,19,${a * 0.45})`);
+        gr.addColorStop(1, 'rgba(30,24,19,0)');
+      });
+    }, true);
+    // General grime plus the streaks equipment leaves when it is dragged across the slab.
+    const grimeTex = decalTex(128, (g, s) => {
+      blobs(g, s, 20, 0.36, gr => {
+        const a = 0.1 + Math.random() * 0.2;
+        gr.addColorStop(0, `rgba(56,50,42,${a})`);
+        gr.addColorStop(0.6, `rgba(68,62,52,${a * 0.4})`);
+        gr.addColorStop(1, 'rgba(68,62,52,0)');
+      });
+      g.lineCap = 'round'; g.strokeStyle = 'rgba(44,40,34,0.12)';
+      for (let i = 0; i < 5; i++) {
+        g.lineWidth = 3 + Math.random() * 7;
+        g.beginPath();
+        g.moveTo(s * Math.random(), -6);
+        g.bezierCurveTo(s * 0.3, s * 0.35, s * 0.7, s * 0.6, s * Math.random(), s + 6);
+        g.stroke();
+      }
+    }, true);
+    // Puddle outline. This one is an alphaMap, so the shape lives in the grey channel and the
+    // canvas has to stay opaque - a transparent edge would upload as a hard alpha step, and the
+    // blobs are composited additively so overlaps merge instead of punching holes in each other.
+    const puddleTex = decalTex(128, (g, s) => {
+      g.fillStyle = '#000'; g.fillRect(0, 0, s, s);
+      g.globalCompositeOperation = 'lighter';
+      blobs(g, s, 9, 0.42, gr => {
+        gr.addColorStop(0, 'rgb(255,255,255)');
+        gr.addColorStop(0.6, 'rgb(212,212,212)');
+        gr.addColorStop(1, 'rgb(0,0,0)');
+      });
+      g.globalCompositeOperation = 'source-over';
+    });
+
+    // Wet patches sit where water would actually pool: the corners and edges of the slab.
+    const puddleSpots = [
+      [-8.6, -8.6, 3.6, 2.4, 0.5], [-6.4, 6.6, 2.7, 1.9, 1.1], [8.6, -6.8, 3.1, 2.1, 0.3],
+      [9.8, 5.4, 2.3, 1.7, 2.0], [-10.4, 1.6, 2.5, 1.6, 1.6], [1.8, 7.9, 2.9, 1.9, 0.9],
+      [-3.4, -11.4, 2.3, 1.5, 2.4]
+    ].slice(0, { desktop: 7, quest2: 5, quest1: 3 }[tierName] || 7);
+    // Low roughness and a touch of metalness let the HDRI environment reflect off the film of
+    // water, which is what sells it as wet rather than as a dark stain.
+    const puddleMat = trackLit(new THREE.MeshStandardMaterial({
+      color: 0x1b2124, roughness: 0.05, metalness: 0.2, envMapIntensity: 1.8,
+      alphaMap: puddleTex, transparent: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3
+    }));
+
+    // Grime spirals out from the work area, so it never lands under the fire itself.
+    const grimeSpots = [];
+    {
+      const n = { desktop: 12, quest2: 8, quest1: 5 }[tierName] || 12;
+      for (let i = 0; i < n; i++) {
+        const a = i * 2.39996, r = 3.6 + (i % 4) * 2.7;
+        grimeSpots.push({
+          x: Math.cos(a) * r, z: Math.sin(a) * r * 0.88, ry: a,
+          sx: 3.4 + (i % 3) * 0.9, sy: 2.2 + (i % 2) * 0.7, tint: 1 - (i % 3) * 0.14
+        });
+      }
+    }
+    const grimeMat = trackLit(new THREE.MeshStandardMaterial({
+      map: grimeTex, transparent: true, opacity: 0.85, roughness: 0.95, metalness: 0,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3
+    }));
+
+    function decalInstances(geo, material, list, name) {
+      const inst = new THREE.InstancedMesh(geo, material, list.length);
+      inst.name = name;
+      inst.receiveShadow = true;
+      inst.frustumCulled = false;
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+      const v = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
+      list.forEach((d, i) => {
+        e.set(-Math.PI / 2, 0, d.ry || 0);
+        q.setFromEuler(e);
+        v.set(d.x, DECAL_Y, d.z);
+        sc.set(d.sx, d.sy, 1);
+        inst.setMatrixAt(i, m4.compose(v, q, sc));
+        if (d.tint !== undefined) inst.setColorAt(i, col.setScalar(d.tint));
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      scene.add(inst);
+      return inst;
+    }
+    decalInstances(new THREE.PlaneGeometry(1, 1), puddleMat, puddleSpots, 'puddles');
+    decalInstances(new THREE.PlaneGeometry(1, 1), grimeMat, grimeSpots, 'grime');
+
+    // Burn mark under the fire: it fades in as the fire burns and is wiped when the drill restarts.
+    const scorch = new THREE.Mesh(new THREE.PlaneGeometry(5.4, 5.4), trackLit(new THREE.MeshStandardMaterial({
+      map: scorchTex, transparent: true, opacity: 0, depthWrite: false, roughness: 0.98, metalness: 0,
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
+    })));
+    scorch.rotation.x = -Math.PI / 2;
+    scorch.position.set(2.2, DECAL_Y + 0.001, -7);
+    scorch.name = 'scorch';
+    scorch.renderOrder = 2;
+    scorch.receiveShadow = true;
+    scorch.visible = false;
+    scene.add(scorch);
+
+    // Contact shadow for anything that stands on the slab: the shadow map cannot resolve the last
+    // few centimetres where a boot or a crate meets the ground, and on Quest that disc is the only
+    // grounding a worker gets at a distance. Basic material, so it darkens by pure alpha blending.
+    const contactTex = decalTex(64, (g, s) => {
+      const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+      gr.addColorStop(0, 'rgba(0,0,0,0.72)');
+      gr.addColorStop(0.45, 'rgba(0,0,0,0.3)');
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, s, s);
+    }, true);
+    const contactMat = new THREE.MeshBasicMaterial({
+      map: contactTex, transparent: true, opacity: 0.85, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3
+    });
+    const workerDiscGeo = new THREE.PlaneGeometry(1.15, 1.15);
 
     function box(name, x, y, z, sx, sy, sz, material, cast = true) {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), material);
@@ -373,17 +776,6 @@
     fireLight.position.set(2.2, 2.0, -7);
     scene.add(fireLight);
 
-    // Smoke particles, kept deliberately lightweight.
-    const smokeMat = new THREE.MeshBasicMaterial({ color: 0x454b4e, transparent: true, opacity: 0.25, depthWrite: false });
-    const smoke = [];
-    for (let i = 0; i < 18; i++) {
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.22 + Math.random() * 0.25, 7, 6), smokeMat.clone());
-      mesh.position.set(2.2 + (Math.random() - .5) * .8, 1.8 + Math.random() * 2.0, -7 + (Math.random() - .5) * .7);
-      mesh.userData = { phase: Math.random() * 10, size: 0.7 + Math.random() * 1.3 };
-      scene.add(mesh);
-      smoke.push(mesh);
-    }
-
     // Extinguisher and its mounting station.
     const extinguisher = new THREE.Group();
     extinguisher.name = 'extinguisher';
@@ -437,6 +829,251 @@
       sprayParticles.push(p);
     }
 
+    // ===================== glTF PROP MODELS =====================
+    // Poly Haven (CC0) models streamed from the CDN at runtime replace the primitive stand-ins:
+    // barriers, drums, crates, the toolbox, the extinguisher, scaffolding, the call point and the
+    // surrounding site clutter. The CDN publishes geometry + .bin but not the per-model texture
+    // folder, so every mesh is re-textured from the Poly Haven PBR sets already used by the site,
+    // then normalised onto the ground, UV1-fixed for aoMap and registered with the CSM cascades.
+    const props3d = new THREE.Group();
+    props3d.name = 'gltf-props';
+    scene.add(props3d);
+
+    function fitToGround(root, targetHeight) {
+      root.updateMatrixWorld(true);
+      const size = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3());
+      if (targetHeight && size.y > 1e-4) root.scale.multiplyScalar(targetHeight / size.y);
+      root.updateMatrixWorld(true);
+      const bb = new THREE.Box3().setFromObject(root);
+      const c = bb.getCenter(new THREE.Vector3());
+      root.position.sub(new THREE.Vector3(c.x, bb.min.y, c.z));
+      return root;
+    }
+
+    // Poly Haven models ship dozens of primitives that all end up wearing the single re-textured
+    // material, and every primitive is its own draw call. Baking the hierarchy into one mesh is
+    // what keeps the site inside the draw-call budget; if the attribute sets do not line up the
+    // merge is abandoned and the unmerged hierarchy is used unchanged.
+    function mergeStaticProp(root, material) {
+      root.updateMatrixWorld(true);
+      const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+      const local = new THREE.Matrix4();
+      const meshes = [];
+      root.traverse(o => { if (o.isMesh && o.geometry) meshes.push(o); });
+      // A single-primitive prop is already one draw call, so it skips the merge - but it still goes
+      // through the mobile LOD pass.
+      if (meshes.length < 2) {
+        if (meshes.length === 1) decimateProp(meshes[0].geometry);
+        return null;
+      }
+      const geos = meshes.map(o => {
+        const g = o.geometry.clone();
+        for (const k of Object.keys(g.attributes)) {
+          if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'uv1') g.deleteAttribute(k);
+        }
+        if (g.attributes.uv && !g.attributes.uv1) g.setAttribute('uv1', g.attributes.uv);
+        if (!g.attributes.normal) g.computeVertexNormals();
+        // The mobile LOD pass needs a shared-vertex indexed mesh, so non-indexed primitives get a
+        // trivial index rather than the whole prop being dropped out of the merge.
+        if (!g.index) g.setIndex(Array.from({ length: g.attributes.position.count }, (_, i) => i));
+        g.applyMatrix4(local.multiplyMatrices(inv, o.matrixWorld));
+        return g;
+      });
+      const merged = BufferGeometryUtils.mergeGeometries(geos, false);
+      geos.forEach(g => g.dispose());
+      if (!merged) return null;
+      const mesh = new THREE.Mesh(merged, material);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      root.clear();
+      root.add(mesh);
+      decimateProp(merged);
+      return mesh;
+    }
+
+    // --- Mobile geometry budget ----------------------------------------------------------------
+    // The Poly Haven props are authored for offline rendering; two facades alone are half a million
+    // triangles. On the headset tiers meshoptimizer's WASM simplifier builds a cheaper LOD for the
+    // heavy props. Simplification only rewrites the index buffer - the vertices it still references
+    // stay put - so the result is immediately usable, including as InstancedMesh geometry.
+    const PROP_DECIMATE = { desktop: 0, quest2: 0.35, quest1: 0.12 }[tierName] || 0;
+    function decimateProp(geometry) {
+      if (!PROP_DECIMATE || !geometry.index) return;
+      const tris = geometry.index.count / 3;
+      if (tris < 20000) return;   // small props are not worth a simplification pass
+      const target = Math.max(3, Math.floor(tris * PROP_DECIMATE) * 3);
+      loadSimplifier().then(simplifier => {
+        if (!simplifier) return;
+        const [simplified] = simplifier.simplify(
+          new Uint32Array(geometry.index.array), geometry.attributes.position.array, 3, target, 1.0
+        );
+        geometry.setIndex(new THREE.BufferAttribute(simplified, 1));
+      }).catch(() => { /* the full-detail geometry stays in place */ });
+    }
+    let simplifierPromise = null;
+    function loadSimplifier() {
+      if (!simplifierPromise) {
+        simplifierPromise = import('https://cdn.jsdelivr.net/npm/meshoptimizer@0.22.0/meshopt_simplifier.module.js')
+          .then(m => m.MeshoptSimplifier.ready.then(() => m.MeshoptSimplifier))
+          .catch(() => null);
+      }
+      return simplifierPromise;
+    }
+
+    function loadModel(slug, materialSlug, opts = {}) {
+      const {
+        x = 0, z = 0, y = 0, ry = 0, height = 1, repeat = 1,
+        color = 0xffffff, metalness = 0.2, roughness = 0.9, normalScale = 1
+      } = opts;
+      return new Promise(resolve => {
+        gltfLoader.load(`${ASSET_CDN.models}${slug}/${slug}_1k.gltf`, gltf => {
+          const root = gltf.scene;
+          const material = pbrMaterial(materialSlug, { repeat, color, metalness, roughness, normalScale });
+          root.traverse(o => {
+            if (!o.isMesh) return;
+            o.material = material;
+            o.castShadow = true;
+            o.receiveShadow = true;
+          });
+          ensureUv1Deep(root);
+          mergeStaticProp(root, material);
+          fitToGround(root, height);
+          const holder = new THREE.Group();
+          holder.name = `model:${slug}`;
+          holder.add(root);
+          holder.position.set(x, y, z);
+          holder.rotation.y = ry;
+          props3d.add(holder);
+          csmRegister(holder);
+          resolve(holder);
+        }, undefined, err => { console.warn('prop model unavailable:', slug, err?.message || err); resolve(null); });
+      });
+    }
+
+    // Repeated props (barriers, drums, fence panels, crates) are loaded once and replayed as
+    // InstancedMeshes — one draw call per source mesh for the whole batch, which is what keeps
+    // the site inside the draw-call budget.
+    function loadInstanced(slug, materialSlug, placements, opts = {}) {
+      const { repeat = 1, color = 0xffffff, metalness = 0.2, roughness = 0.9, normalScale = 1 } = opts;
+      return new Promise(resolve => {
+        gltfLoader.load(`${ASSET_CDN.models}${slug}/${slug}_1k.gltf`, gltf => {
+          const root = gltf.scene;
+          const material = pbrMaterial(materialSlug, { repeat, color, metalness, roughness, normalScale });
+          ensureUv1Deep(root);
+          root.traverse(o => { if (o.isMesh) o.material = material; });
+          // Merge before instancing, otherwise a 40-primitive source mesh becomes 40
+          // InstancedMeshes and therefore 40 draw calls per batch instead of one.
+          mergeStaticProp(root, material);
+          csmRegister(root);
+          root.updateMatrixWorld(true);
+          const bb = new THREE.Box3().setFromObject(root);
+          const size = bb.getSize(new THREE.Vector3());
+          const center = bb.getCenter(new THREE.Vector3());
+          const group = new THREE.Group();
+          group.name = `inst:${slug}`;
+          const meshes = [];
+          root.traverse(o => { if (o.isMesh) meshes.push(o); });
+          const scale0 = (placements[0].height || size.y) / Math.max(1e-4, size.y);
+          const norm = new THREE.Matrix4().makeScale(scale0, scale0, scale0)
+            .premultiply(new THREE.Matrix4().makeTranslation(-center.x, -bb.min.y, -center.z));
+          const tmp = new THREE.Matrix4();
+          for (const mesh of meshes) {
+            const inst = new THREE.InstancedMesh(mesh.geometry, material, placements.length);
+            inst.castShadow = true; inst.receiveShadow = true; inst.frustumCulled = false;
+            const base = tmp.copy(norm).multiply(mesh.matrixWorld).clone();
+            placements.forEach((pl, i) => {
+              const k = (pl.height || size.y) / Math.max(1e-4, size.y) / scale0;
+              const m = new THREE.Matrix4()
+                .makeTranslation(pl.x || 0, pl.y || 0, pl.z || 0)
+                .multiply(new THREE.Matrix4().makeRotationY(pl.ry || 0))
+                .multiply(new THREE.Matrix4().makeScale(k, k, k))
+                .multiply(base);
+              inst.setMatrixAt(i, m);
+            });
+            inst.instanceMatrix.needsUpdate = true;
+            group.add(inst);
+          }
+          props3d.add(group);
+          resolve(group);
+        }, undefined, err => { console.warn('prop batch unavailable:', slug, err?.message || err); resolve(null); });
+      });
+    }
+
+    // The primitive stand-in only disappears once its replacement is actually on screen, so a CDN
+    // failure degrades to the old look instead of leaving a hole in the site.
+    function hidePrimitives(...prefixes) {
+      scene.traverse(o => {
+        if (o.name && prefixes.some(p => o.name.startsWith(p))) o.visible = false;
+      });
+    }
+
+    // --- Barriers, drums, crates and the toolbox: direct replacements for the blocky props
+    loadInstanced('concrete_road_barrier', 'concrete_wall_008', [
+      { x: -3.4, z: 2.5, height: 1.05 }, { x: 0, z: 2.5, ry: Math.PI, height: 1.05 }, { x: 3.4, z: 2.5, height: 1.05 }
+    ], { repeat: 1, color: 0xc9c5b8, metalness: 0.02, roughness: 0.96 })
+      .then(ok => { if (ok) hidePrimitives('barrier'); });
+
+    loadInstanced('Barrel_01', 'metal_plate', [
+      { x: 4.4, z: -8.6, height: 0.92 }, { x: 5.2, z: -8.9, ry: 0.5, height: 0.92 }, { x: 4.8, z: -8.0, ry: 1.1, height: 0.92 }
+    ], { repeat: 1, color: 0x2f6f9f, metalness: 0.55, roughness: 0.55 })
+      .then(ok => { if (ok) hidePrimitives('drum'); });
+
+    loadInstanced('wooden_crate_01', 'wood_planks_grey', [
+      { x: 5.8, z: -3.3, ry: 0.2, height: 0.55 },
+      { x: 5.75, z: -3.25, y: 0.55, ry: 1.4, height: 0.5 },
+      { x: 5.85, z: -3.35, y: 1.05, ry: 0.7, height: 0.45 },
+      { x: 6.9, z: -2.2, ry: -0.5, height: 0.42 }
+    ], { repeat: 2, color: 0xb08a5e, metalness: 0, roughness: 0.95 })
+      .then(ok => { if (ok) hidePrimitives('pallet base', 'stacked board'); });
+
+    loadModel('metal_toolbox', 'metal_plate', { x: -3.6, z: -3.6, height: 0.7, ry: 0.4, repeat: 1, color: 0xef7d32, metalness: 0.5, roughness: 0.5 })
+      .then(ok => { if (ok) hidePrimitives('toolbox', 'toolbox lid'); });
+
+    // --- The extinguisher itself: the real model rides inside the existing interaction group, so
+    // the grip/trigger/pin logic and XR attachment keep working untouched.
+    loadModel('korean_fire_extinguisher_01', 'metal_plate', { height: 1.16, repeat: 1, color: 0xc62828, metalness: 0.45, roughness: 0.45 })
+      .then(holder => {
+        if (!holder) return;
+        holder.position.set(0, 0, 0);
+        holder.rotation.y = 0;
+        props3d.remove(holder);
+        extinguisher.add(holder);
+        [body, neck, handle, hose, nozzle, label].forEach(m => { m.visible = false; });
+      });
+
+    // --- Site structures: scaffolding, fencing, hydrant, call point, pipes and services
+    loadModel('modular_fire_escape', 'metal_plate', { x: -7.7, z: -1.05, height: 3.2, repeat: 2, color: 0x8d99a1, metalness: 0.85, roughness: 0.45 })
+      .then(ok => { if (ok) hidePrimitives('scaffold'); });
+    loadInstanced('modular_chainlink_fence', 'metal_plate', [
+      { x: -13, z: 12.5 }, { x: -8.5, z: 12.5 }, { x: -4, z: 12.5 }, { x: 0.5, z: 12.5 },
+      { x: 5, z: 12.5 }, { x: 9.5, z: 12.5 }, { x: -13, z: 8, ry: Math.PI / 2 }
+    ], { repeat: 2, color: 0x9aa4a9, metalness: 0.8, roughness: 0.5 });
+    loadModel('fire_hydrant', 'metal_plate', { x: 7.4, z: 2.4, height: 0.95, repeat: 1, color: 0xd8442c, metalness: 0.35, roughness: 0.5 });
+    loadModel('fire_alarm', 'metal_plate', { x: -0.55, y: 1.16, z: -3.4, height: 0.26, repeat: 1, color: 0xd32f2f, metalness: 0.4, roughness: 0.45 })
+      .then(ok => { if (ok) hidePrimitives('callpoint'); });
+    loadModel('modular_industrial_pipes_01', 'rusty_metal_02', { x: -4.2, z: -10.4, height: 2.6, ry: Math.PI, repeat: 2, color: 0x9c8d80, metalness: 0.75, roughness: 0.6 });
+    loadModel('garden_hose_wall_mounted_01', 'metal_plate', { x: 2.6, y: 1.1, z: -10.75, height: 0.62, repeat: 1, color: 0x3a4247, metalness: 0.6, roughness: 0.5 });
+    loadModel('utility_box_01', 'metal_plate', { x: -9.6, z: -3.2, ry: 0.3, height: 1.25, repeat: 1, color: 0x7f8a86, metalness: 0.7, roughness: 0.55 });
+    loadModel('security_camera_01', 'metal_plate', { x: -2.2, y: 3.3, z: -10.72, ry: Math.PI, height: 0.34, repeat: 1, color: 0xd6d8d5, metalness: 0.6, roughness: 0.4 });
+
+    // --- Ground clutter and tools
+    loadInstanced('cardboard_box_01', 'wood_planks_grey', [
+      { x: 8.4, z: -1.4, ry: 0.8, height: 0.42 }, { x: 8.75, z: -1.75, ry: 2.1, height: 0.32 }
+    ], { repeat: 1, color: 0xbb9560, metalness: 0, roughness: 1 });
+    loadModel('steel_frame_shelves_01', 'metal_plate', { x: -7.6, z: -9.6, ry: 0.1, height: 1.9, repeat: 2, color: 0x8d99a1, metalness: 0.85, roughness: 0.45 });
+    loadModel('ladder_sectioned_01', 'metal_plate', { x: 9.0, z: -3.0, ry: 0.15, height: 2.4, repeat: 2, color: 0xa8b0b4, metalness: 0.8, roughness: 0.5 });
+    loadModel('portable_generator', 'metal_plate', { x: -10.8, z: -6.4, ry: 0.9, height: 0.7, repeat: 1, color: 0x53595c, metalness: 0.6, roughness: 0.6 });
+    loadModel('industrial_pastic_container', 'metal_plate', { x: -10.2, z: 1.4, ry: 0.4, height: 0.95, repeat: 1, color: 0x2f6f9f, metalness: 0.15, roughness: 0.6 });
+    loadModel('metal_jerrycan', 'metal_plate', { x: -4.9, z: -3.9, ry: 1.2, height: 0.5, repeat: 1, color: 0x4e8666, metalness: 0.55, roughness: 0.55 });
+    loadModel('crowbar_01', 'rusty_metal_02', { x: -3.1, z: -3.2, ry: 1.9, height: 0.85, repeat: 1, color: 0x9aa0a6, metalness: 0.9, roughness: 0.4 });
+    loadModel('WetFloorSign_01', 'metal_plate', { x: -0.9, z: -1.6, ry: -0.6, height: 0.62, repeat: 1, color: 0xf5c518, metalness: 0.2, roughness: 0.6 });
+
+    // --- Distant skyline / industrial horizon (also hides the hard edge of the terrain plane)
+    loadModel('modular_factory_facade', 'concrete_wall_008', { x: -22, z: -52, height: 17, repeat: 6, color: 0x9fa39c, metalness: 0.05, roughness: 0.95 });
+    loadModel('modular_factory_facade', 'concrete_wall_008', { x: 16, z: -60, height: 21, repeat: 6, color: 0x94988f, metalness: 0.05, roughness: 0.95 });
+    loadModel('modular_urban_apartments_facade', 'concrete_wall_008', { x: 44, z: -34, ry: -0.5, height: 24, repeat: 6, color: 0x9b9a95, metalness: 0.05, roughness: 0.95 });
+    loadModel('modular_urban_apartments_facade', 'concrete_wall_008', { x: -38, z: -30, ry: 0.6, height: 20, repeat: 6, color: 0xa39f96, metalness: 0.05, roughness: 0.95 });
+    loadModel('modular_electricity_poles', 'rusty_metal_02', { x: -26, z: -6, ry: 0.2, height: 11, repeat: 2, color: 0x8a7f72, metalness: 0.6, roughness: 0.7 });
+
     // Camera / movement.
     const keys = new Set();
     let yaw = 0, pitch = 0;
@@ -455,12 +1092,264 @@
     let soundOn = false;
     let audioContext = null;
     let lastToast = 0;
+    let heldController = null;   // XR controller currently holding the extinguisher
+    let xrMoving = false;        // thumbstick locomotion active this frame
     const clock = new THREE.Clock();
     const raycaster = new THREE.Raycaster();
     const move = new THREE.Vector3();
     const cameraForward = new THREE.Vector3();
     const cameraRight = new THREE.Vector3();
     const worldUp = new THREE.Vector3(0,1,0);
+    const cameraWorld = new THREE.Vector3();  // head position in world space
+    const cameraDir = new THREE.Vector3();    // head facing direction in world space
+    const aimDir = new THREE.Vector3();
+
+    // ===================== WEBXR (Quest 1 / Quest 2) =====================
+    // Desktop keeps pointer-lock + WASD; everything below only runs while presenting.
+    renderer.xr.setFramebufferScaleFactor(tier.framebufferScale);
+    renderer.xr.setFoveation(tier.foveation);
+
+    const xrControllers = [];
+    const xrModelFactory = new XRControllerModelFactory();
+    const xrTempMatrix = new THREE.Matrix4();
+    const xrRaycaster = new THREE.Raycaster();
+    const applyDeadzone = v => (Math.abs(v) < 0.15 ? 0 : v);
+
+    const teleportMarker = new THREE.Mesh(
+      new THREE.RingGeometry(0.2, 0.28, 28),
+      new THREE.MeshBasicMaterial({ color: 0x55c7e8, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
+    );
+    teleportMarker.rotation.x = -Math.PI / 2;
+    teleportMarker.visible = false;
+    scene.add(teleportMarker);
+
+    for (let i = 0; i < 2; i++) {
+      const controller = renderer.xr.getController(i);
+      controller.userData = { gamepad: null, teleporting: false, pinPullFrom: 0 };
+      controller.addEventListener('connected', e => { controller.userData.gamepad = e.data.gamepad || null; });
+      controller.addEventListener('disconnected', () => { controller.userData.gamepad = null; });
+      controller.addEventListener('selectstart', () => xrTriggerDown(controller));
+      controller.addEventListener('selectend', () => xrTriggerUp());
+      controller.addEventListener('squeezestart', () => xrGripDown(controller));
+      controller.addEventListener('squeezeend', () => { controller.userData.pinPullFrom = 0; });
+
+      const ray = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
+        new THREE.LineBasicMaterial({ color: 0x55c7e8, transparent: true, opacity: 0.85 })
+      );
+      ray.visible = false;
+      controller.userData.ray = ray;
+      controller.add(ray);
+      dolly.add(controller);
+      xrControllers.push(controller);
+
+      const grip = renderer.xr.getControllerGrip(i);
+      grip.add(xrModelFactory.createControllerModel(grip));
+      dolly.add(grip);
+    }
+
+    // Wrist-mounted objectives / meter panel — the HTML HUD cannot render inside VR.
+    const xrPanelCanvas = document.createElement('canvas');
+    xrPanelCanvas.width = 512; xrPanelCanvas.height = 288;
+    const xrPanelCtx = xrPanelCanvas.getContext('2d');
+    const xrPanelTex = new THREE.CanvasTexture(xrPanelCanvas);
+    xrPanelTex.colorSpace = THREE.SRGBColorSpace;
+    const xrPanel = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.2, 0.1125),
+      new THREE.MeshBasicMaterial({ map: xrPanelTex, transparent: true, depthTest: false, opacity: 0.95 })
+    );
+    xrPanel.renderOrder = 999;
+    xrPanel.position.set(0, 0.05, -0.02);
+    xrPanel.rotation.set(-Math.PI / 2, 0, 0);
+    xrPanel.visible = false;
+    xrControllers[0].add(xrPanel);
+    let xrMessage = 'Squeeze grip to collect the extinguisher.';
+
+    function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
+      const words = String(text).split(' ');
+      let line = '', row = 0;
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+          ctx.fillText(line, x, y + row * lineHeight);
+          line = word; row++;
+          if (row >= maxLines) return y + row * lineHeight;
+        } else line = test;
+      }
+      if (line) { ctx.fillText(line, x, y + row * lineHeight); row++; }
+      return y + row * lineHeight;
+    }
+
+    function drawXrPanel() {
+      const c = xrPanelCtx, W = xrPanelCanvas.width, H = xrPanelCanvas.height;
+      c.clearRect(0, 0, W, H);
+      c.fillStyle = 'rgba(8,16,22,.88)'; c.fillRect(0, 0, W, H);
+      c.strokeStyle = 'rgba(85,199,232,.75)'; c.lineWidth = 5; c.strokeRect(2.5, 2.5, W - 5, H - 5);
+      c.textBaseline = 'alphabetic';
+      c.fillStyle = '#55c7e8'; c.font = 'bold 20px Inter, Arial, sans-serif';
+      c.fillText(`STEP ${ui.stepNum.textContent} · RE-EL`, 24, 38);
+      c.fillStyle = '#f5f8fa'; c.font = 'bold 30px Inter, Arial, sans-serif';
+      wrapCanvasText(c, ui.objectiveTitle.textContent, 24, 78, W - 48, 34, 2);
+      c.fillStyle = '#b7c5ce'; c.font = '20px Inter, Arial, sans-serif';
+      wrapCanvasText(c, xrMessage, 24, 152, W - 48, 24, 2);
+      const bars = [
+        ['FIRE', fireIntensity, '#ff765f'],
+        ['SUPPLY', supply, '#72e0a4'],
+        ['HEAT', enhance.heat, '#ffca70']
+      ];
+      bars.forEach(([label, value, color], i) => {
+        const y = 214 + i * 22, w = Math.max(0, Math.min(100, value)) / 100 * 430;
+        c.fillStyle = '#b7c5ce'; c.font = 'bold 16px Inter, Arial, sans-serif';
+        c.fillText(label, 24, y + 10);
+        c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(78, y, 430, 10);
+        c.fillStyle = color; c.fillRect(78, y, w, 10);
+      });
+      xrPanelTex.needsUpdate = true;
+    }
+
+    function xrHaptic(controller, intensity = 0.55, duration = 70) {
+      const actuators = controller?.userData?.gamepad?.hapticActuators;
+      const actuator = Array.isArray(actuators) ? actuators[0] : actuators;
+      if (actuator && typeof actuator.pulse === 'function') actuator.pulse(intensity, duration);
+    }
+
+    // Grip button: pick the extinguisher up, then the same grip is the pin "pull" gesture.
+    function xrGripDown(controller) {
+      if (!active) { startSimulation(guided); return; }
+      if (!pickedUp) {
+        collectExtinguisher();
+        if (pickedUp) xrHoldExtinguisher(controller);
+        return;
+      }
+      if (!pinRemoved) {
+        // Arm the pull gesture: pulling the controller toward the head removes the pin.
+        controller.userData.pinPullFrom = controller.position.distanceTo(camera.position);
+        xrMessage = 'Pull the controller toward you to remove the pin.';
+      } else {
+        beginSpray();
+      }
+    }
+
+    // Trigger: discharge.
+    function xrTriggerDown() {
+      if (!active) { startSimulation(guided); return; }
+      if (!pickedUp || !pinRemoved) return;
+      beginSpray();
+    }
+    function xrTriggerUp() { if (spraying) endSpray(); }
+
+    function xrHoldExtinguisher(controller) {
+      heldController = controller;
+      controller.add(extinguisher);
+      extinguisher.visible = true;
+      extinguisher.position.set(0.02, -0.06, -0.1);
+      extinguisher.rotation.set(0, Math.PI / 2, 0.15);
+      extinguisher.scale.setScalar(0.85);
+      controller.userData.ray.visible = false;
+      xrMessage = 'Squeeze grip again to pull the pin, then pull the trigger.';
+      xrHaptic(controller, 0.5, 60);
+    }
+
+    function xrDetachExtinguisher() {
+      if (!heldController) return;
+      heldController.userData.ray.visible = true;
+      heldController.remove(extinguisher);
+      heldController = null;
+      scene.add(extinguisher);
+      extinguisher.scale.setScalar(1);
+    }
+
+    const xrRigOffset = new THREE.Vector3();
+    function xrCommitTeleport() {
+      // Move the dolly so the player's head lands on the marker.
+      xrRigOffset.set(camera.position.x, 0, camera.position.z).applyAxisAngle(worldUp, dolly.rotation.y);
+      dolly.position.x = THREE.MathUtils.clamp(teleportMarker.position.x - xrRigOffset.x, -13, 13);
+      dolly.position.z = THREE.MathUtils.clamp(teleportMarker.position.z - xrRigOffset.z, -10, 11);
+    }
+
+    let xrSnapCooldown = 0, xrPanelTimer = 0;
+    function updateXR(dt) {
+      if (!renderer.xr.isPresenting) return;
+      const session = renderer.xr.getSession();
+      if (!session) return;
+
+      let strafe = 0, forward = 0, turn = 0;
+      session.inputSources.forEach((source, index) => {
+        const gp = source.gamepad;
+        if (!gp || !gp.axes || gp.axes.length < 4) return;
+        const hand = (source.handedness === 'left' || source.handedness === 'right')
+          ? source.handedness : (index === 0 ? 'left' : 'right');
+        if (hand === 'left') { strafe = applyDeadzone(gp.axes[2]); forward = applyDeadzone(gp.axes[3]); }
+        else turn = Math.abs(gp.axes[2]) > 0.75 ? Math.sign(gp.axes[2]) : 0;
+      });
+
+      xrMoving = Math.abs(forward) > 0.01 || Math.abs(strafe) > 0.01;
+      if (xrMoving && active) {
+        // Move relative to where the head is looking, but stay flat on the ground plane.
+        cameraForward.set(cameraDir.x, 0, cameraDir.z).normalize();
+        cameraRight.crossVectors(cameraForward, worldUp).normalize();
+        move.set(0, 0, 0).addScaledVector(cameraForward, -forward).addScaledVector(cameraRight, strafe);
+        if (move.lengthSq() > 0) {
+          move.normalize().multiplyScalar(tier.moveSpeed * dt);
+          dolly.position.x = THREE.MathUtils.clamp(dolly.position.x + move.x, -13, 13);
+          dolly.position.z = THREE.MathUtils.clamp(dolly.position.z + move.z, -10, 11);
+        }
+      }
+
+      // Snap turning is the comfort default; smooth turning makes people sick.
+      xrSnapCooldown = Math.max(0, xrSnapCooldown - dt);
+      if (turn !== 0 && xrSnapCooldown === 0) { dolly.rotation.y -= turn * tier.snapAngle; xrSnapCooldown = 0.35; }
+
+      for (const controller of xrControllers) {
+        const gp = controller.userData.gamepad;
+        // Pin pull gesture: the controller got measurably closer to the head.
+        if (controller.userData.pinPullFrom && pickedUp && !pinRemoved) {
+          if (controller.position.distanceTo(camera.position) < controller.userData.pinPullFrom - 0.1) {
+            controller.userData.pinPullFrom = 0;
+            removePin();
+            xrHaptic(controller, 0.9, 110);
+            xrMessage = 'Pin removed. Aim the nozzle at the base of the fire.';
+          }
+        }
+        if (!gp || !gp.buttons || gp.buttons.length < 4 || !tier.teleport) continue;
+        const stickPressed = !!gp.buttons[3].pressed;
+        if (stickPressed && !controller.userData.teleporting) {
+          controller.userData.teleporting = true;
+          controller.userData.ray.visible = true;
+        } else if (!stickPressed && controller.userData.teleporting) {
+          controller.userData.teleporting = false;
+          controller.userData.ray.visible = false;
+          if (teleportMarker.visible) xrCommitTeleport();
+          teleportMarker.visible = false;
+        }
+        if (controller.userData.teleporting) {
+          xrTempMatrix.identity().extractRotation(controller.matrixWorld);
+          xrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+          xrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(xrTempMatrix);
+          const hit = xrRaycaster.intersectObject(ground, false)[0];
+          teleportMarker.visible = !!hit;
+          if (hit) teleportMarker.position.copy(hit.point).setY(0.02);
+        }
+      }
+
+      xrPanelTimer += dt;
+      if (xrPanelTimer > 0.05) { xrPanelTimer = 0; drawXrPanel(); }
+    }
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      if (!active) startSimulation(guided);
+      xrPanel.visible = true;
+      drawXrPanel();
+      showToast('VR ready. Thumbsticks move and snap-turn, stick click teleports, grip picks up / pulls the pin, trigger discharges.');
+    });
+    renderer.xr.addEventListener('sessionend', () => {
+      xrPanel.visible = false;
+      teleportMarker.visible = false;
+      xrDetachExtinguisher();
+      xrControllers.forEach(c => { c.userData.teleporting = false; c.userData.pinPullFrom = 0; c.userData.ray.visible = true; });
+      dolly.rotation.y = 0;
+    });
+    document.body.appendChild(VRButton.createButton(renderer));
 
     function showToast(message) {
       ui.toast.textContent = message;
@@ -509,9 +1398,13 @@
       targetRing.visible = true;
       fireBase.visible = true;
       fireLight.intensity = 5;
-      flames.forEach(f => f.mesh.visible = true);
-      smoke.forEach(s => { s.visible = true; s.material.opacity = 0.25; });
+      // The desktop tier draws its fire as a raymarched volume, so the cone stand-ins stay hidden.
+      flames.forEach(f => f.mesh.visible = !tier.volumetric);
       sprayParticles.forEach(p => p.visible = false);
+      xrDetachExtinguisher();
+      xrMessage = 'Squeeze grip to collect the extinguisher.';
+      dolly.position.set(0, 0, 0);
+      dolly.rotation.y = 0;
       camera.position.set(0, 1.7, 8.5);
       yaw = 0; pitch = 0;
       camera.rotation.set(0,0,0);
@@ -565,13 +1458,15 @@
         if (!pinRemoved) removePin();
         return;
       }
-      const distance = camera.position.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
+      const distance = cameraWorld.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
       if (distance > 4.1) {
         showToast('Move closer to the extinguisher station.');
         return;
       }
       pickedUp = true;
       extinguisher.visible = false;
+      // Desktop draws the extinguisher in front of the camera; XR re-parents it to a controller.
+      extinguisher.scale.setScalar(1);
       scenarioState = 'pin';
       setObjective(2, 'Prepare the extinguisher', 'Collect the extinguisher and complete the guided equipment interaction.');
       setPrompt('Extinguisher collected. Press <span class="key">E</span> again to simulate removing the safety pin.');
@@ -579,16 +1474,19 @@
     }
 
     function fireDistance() {
-      return camera.position.distanceTo(new THREE.Vector3(2.2, 1.2, -7));
+      return cameraWorld.distanceTo(new THREE.Vector3(2.2, 1.2, -7));
     }
     function getAimDirection() {
-      const dir = new THREE.Vector3();
-      camera.getWorldDirection(dir);
-      return dir.normalize();
+      // In VR the nozzle follows the holding controller's forward vector, not the gaze.
+      if (renderer.xr.isPresenting && heldController) {
+        xrTempMatrix.identity().extractRotation(heldController.matrixWorld);
+        return aimDir.set(0, 0, -1).applyMatrix4(xrTempMatrix).normalize();
+      }
+      return camera.getWorldDirection(aimDir).normalize();
     }
     function isAimingAtFire() {
       const dir = getAimDirection();
-      const toFire = new THREE.Vector3(2.2, 1.1, -7).sub(camera.position).normalize();
+      const toFire = new THREE.Vector3(2.2, 1.1, -7).sub(cameraWorld).normalize();
       return dir.dot(toFire) > 0.94 && fireDistance() < 11;
     }
 
@@ -686,7 +1584,8 @@
     });
 
     function updateMovement(dt) {
-      if (!active) return;
+      // XR locomotion lives in updateXR(); this path is the desktop fallback.
+      if (!active || renderer.xr.isPresenting) return;
       move.set(0,0,0);
       camera.getWorldDirection(cameraForward);
       cameraForward.y = 0; cameraForward.normalize();
@@ -696,21 +1595,19 @@
       if (keys.has('KeyD') || keys.has('ArrowRight')) move.add(cameraRight);
       if (keys.has('KeyA') || keys.has('ArrowLeft')) move.sub(cameraRight);
       if (move.lengthSq() > 0) {
-        move.normalize().multiplyScalar(3.0 * dt);
-        camera.position.add(move);
-        camera.position.x = THREE.MathUtils.clamp(camera.position.x, -13, 13);
-        camera.position.z = THREE.MathUtils.clamp(camera.position.z, -10, 11);
+        move.normalize().multiplyScalar(tier.moveSpeed * dt);
+        dolly.position.x = THREE.MathUtils.clamp(dolly.position.x + move.x, -13, 13);
+        dolly.position.z = THREE.MathUtils.clamp(dolly.position.z + move.z, -10, 11);
         camera.position.y = 1.7;
       }
     }
 
     function updateExtinguisher() {
       if (!pickedUp || !active) return;
+      if (renderer.xr.isPresenting) return;  // parented to the controller instead
       // A lightweight desktop proxy for holding the extinguisher in front of the camera.
-      const forward = new THREE.Vector3();
-      camera.getWorldDirection(forward);
-      const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
-      extinguisher.position.copy(camera.position).add(forward.multiplyScalar(0.8)).add(right.multiplyScalar(0.38));
+      const right = new THREE.Vector3().crossVectors(cameraDir, worldUp).normalize();
+      extinguisher.position.copy(cameraWorld).addScaledVector(cameraDir, 0.8).addScaledVector(right, 0.38);
       extinguisher.position.y -= 0.52;
       extinguisher.quaternion.copy(camera.quaternion);
       extinguisher.rotateX(-0.18);
@@ -744,7 +1641,6 @@
         const scale = Math.max(0.03, fireIntensity / 100);
         f.mesh.scale.set(scale, scale, scale);
       });
-      smoke.forEach(s => { s.material.opacity = 0.05 + fireIntensity / 500; });
       if (fireIntensity <= 0) {
         fireIntensity = 0; updateMeters();
         spraying = false;
@@ -770,34 +1666,28 @@
         f.mesh.position.y = 1.0 + f.h * 0.48 + Math.sin(t * 7 + f.phase) * 0.09;
       });
       fireLight.intensity = (fireIntensity / 100) * (4.5 + Math.sin(t * 11) * 0.6);
-      smoke.forEach((s, i) => {
-        s.position.y += 0.004 + (i % 3) * 0.001;
-        s.position.x += Math.sin(t + s.userData.phase) * 0.002;
-        if (s.position.y > 5.0) {
-          s.position.y = 1.5;
-          s.position.x = 2.2 + (Math.random() - .5) * 0.8;
-          s.position.z = -7 + (Math.random() - .5) * 0.7;
-        }
-        const fade = Math.max(0, fireIntensity / 100);
-        s.scale.setScalar(s.userData.size * fade);
-        s.material.opacity = 0.16 * fade;
-      });
       targetRing.material.opacity = 0.55 + Math.sin(t * 3) * 0.2;
     }
 
     function updateGuidance() {
       if (!active) return;
-      const distExt = camera.position.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
+      const distExt = cameraWorld.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
+      const xr = renderer.xr.isPresenting;
       if (!pickedUp) {
-        setPrompt(distExt < 4.1
+        const close = distExt < 4.1;
+        setPrompt(close
           ? 'Press <span class="key">E</span> to collect the extinguisher.'
           : 'Locate the extinguisher station. Move with <span class="key">W A S D</span> and look with your mouse.');
+        if (xr) xrMessage = close ? 'Squeeze the grip to collect the extinguisher.' : 'Walk to the extinguisher station on the left.';
       } else if (!pinRemoved) {
         setPrompt('Press <span class="key">E</span> to simulate the pin interaction.');
+        if (xr) xrMessage = 'Squeeze the grip and pull the controller in to remove the pin.';
       } else if (fireIntensity > 0 && !spraying) {
-        setPrompt(isAimingAtFire()
+        const aligned = isAimingAtFire();
+        setPrompt(aligned
           ? 'Target aligned. Hold the left mouse button to simulate discharge.'
           : 'Face the fire and align the crosshair with the target area.');
+        if (xr) xrMessage = aligned ? 'Aligned. Pull the trigger to discharge.' : 'Point the nozzle at the base of the fire.';
       }
     }
 
@@ -807,20 +1697,8 @@
     const enhance = (() => {
       const rnd = (a, b) => a + Math.random() * (b - a);
       const SRGB = THREE.SRGBColorSpace;
-      const M = (c, r = 0.6, m = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+      const M = (c, r = 0.6, m = 0) => trackLit(new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m }));
 
-      function grain(base, rep, streak, contrast) {
-        const c = document.createElement('canvas'); c.width = c.height = 256;
-        const g = c.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, 256, 256);
-        for (let i = 0; i < 5200; i++) {
-          const v = (128 + rnd(-contrast, contrast)) | 0;
-          g.fillStyle = `rgba(${v},${v},${v},${rnd(0.05, 0.25)})`;
-          if (streak) g.fillRect(rnd(0, 256), rnd(0, 256), 1.2, rnd(8, 60));
-          else g.fillRect(rnd(0, 256), rnd(0, 256), rnd(1, 3), rnd(1, 3));
-        }
-        const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.repeat.set(rep, rep); t.colorSpace = SRGB; t.anisotropy = 4; return t;
-      }
       function radialTex(stops) {
         const c = document.createElement('canvas'); c.width = c.height = 128;
         const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
@@ -839,24 +1717,69 @@
         return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide }));
       }
 
-      // --- Surface detail: grain / wood streaks / bump on existing materials
-      [materials.concrete, materials.concreteLight].forEach(m => { m.map = grain('#e8e8e8', 1, false, 50); m.bumpMap = m.map; m.bumpScale = 0.6; m.needsUpdate = true; });
-      materials.wood.map = grain('#eeeeee', 1, true, 55); materials.wood.bumpMap = materials.wood.map; materials.wood.bumpScale = 0.8; materials.wood.needsUpdate = true;
-      ground.material.map = grain('#eeeeee', 34, false, 45); ground.material.bumpMap = ground.material.map; ground.material.bumpScale = 0.8; ground.material.needsUpdate = true;
-
-      // --- Image-based lighting, wider/sharper shadows, sky dome
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-      scene.environmentIntensity = 0.45;
-      sun.shadow.mapSize.set(2048, 2048);
-      Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 60 });
+      // --- Image-based lighting, wider/sharper shadows
+      // The procedural grain() maps are gone: every surface now draws its albedo / normal /
+      // roughness / AO from the Poly Haven PBR sets wired up in pbrMaterial().
+      sun.shadow.mapSize.set(tier.shadowMapSize, tier.shadowMapSize);
+      Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 90 });
       sun.shadow.camera.updateProjectionMatrix(); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03;
-      const skyC = document.createElement('canvas'); skyC.width = 2; skyC.height = 256;
-      const sg = skyC.getContext('2d'), gr = sg.createLinearGradient(0, 0, 0, 256);
-      gr.addColorStop(0, '#4f86a8'); gr.addColorStop(0.55, '#9ab7c5'); gr.addColorStop(1, '#d6dcd4');
-      sg.fillStyle = gr; sg.fillRect(0, 0, 2, 256);
-      const skyTex = new THREE.CanvasTexture(skyC); skyTex.colorSpace = SRGB;
-      scene.add(new THREE.Mesh(new THREE.SphereGeometry(95, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false })));
+      scene.add(sun.target);
+
+      // --- Real HDRI environment (replaces RoomEnvironment) with the sun read from the map
+      const sunDirection = new THREE.Vector3(-0.45, 0.72, 0.35).normalize();
+      const pmremGenerator = new THREE.PMREMGenerator(renderer);
+      function halfToFloat(h) {
+        const s = (h & 0x8000) >> 15, e = (h & 0x7C00) >> 10, f = h & 0x03FF;
+        if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+        if (e === 31) return f ? NaN : (s ? -1 : 1) * Infinity;
+        return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
+      }
+      // Find the brightest texel and convert its equirect position back into a light direction
+      // so the directional light, its shadows and the CSM cascades all agree with the HDRI.
+      function findSunFromHdr(tex) {
+        const img = tex.image;
+        if (!img || !img.data || !img.width) return;
+        const w = img.width, h = img.height, data = img.data;
+        const isHalf = data instanceof Uint16Array;
+        const rows = Math.max(1, Math.floor(h * 0.5));   // the sun never sits below the horizon
+        let best = -1, bx = 0, by = 0;
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < w; x++) {
+            const o = (y * w + x) * 4;
+            const l = isHalf
+              ? halfToFloat(data[o]) * 0.2126 + halfToFloat(data[o + 1]) * 0.7152 + halfToFloat(data[o + 2]) * 0.0722
+              : data[o] * 0.2126 + data[o + 1] * 0.7152 + data[o + 2] * 0.0722;
+            if (l > best) { best = l; bx = x; by = y; }
+          }
+        }
+        if (!(best > 0)) return;
+        const u = (bx + 0.5) / w, v = 1 - (by + 0.5) / h;
+        const azimuth = (u - 0.5) * Math.PI * 2;
+        const elevation = Math.max(0.2, (v - 0.5) * Math.PI);
+        const ce = Math.cos(elevation);
+        sunDirection.set(ce * Math.cos(azimuth), Math.sin(elevation), ce * Math.sin(azimuth)).normalize();
+      }
+      function gradientSky() {
+        const skyC = document.createElement('canvas'); skyC.width = 2; skyC.height = 256;
+        const sg = skyC.getContext('2d'), gr = sg.createLinearGradient(0, 0, 0, 256);
+        gr.addColorStop(0, '#4f86a8'); gr.addColorStop(0.55, '#9ab7c5'); gr.addColorStop(1, '#d6dcd4');
+        sg.fillStyle = gr; sg.fillRect(0, 0, 2, 256);
+        const skyTex = new THREE.CanvasTexture(skyC); skyTex.colorSpace = SRGB;
+        scene.add(new THREE.Mesh(new THREE.SphereGeometry(95, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false })));
+      }
+      hdrLoader.load(`${ASSET_CDN.hdri}royal_esplanade_1k.hdr`, tex => {
+        tex.mapping = THREE.EquirectangularReflectionMapping;
+        findSunFromHdr(tex);
+        scene.environment = pmremGenerator.fromEquirectangular(tex).texture;
+        scene.environmentIntensity = 0.9;
+        scene.background = tex;
+        scene.backgroundIntensity = 0.9;
+        scene.fog.color.setHex(0xb7c6cc);
+        sun.position.copy(sunDirection).multiplyScalar(34);
+        sun.target.position.set(0, 0, -5);
+        sun.target.updateMatrixWorld();
+        if (csm) csm.lightDirection.copy(sunDirection).negate();
+      }, undefined, () => gradientSky());
 
       // --- Props
       const props = new THREE.Group(); scene.add(props);
@@ -875,9 +1798,9 @@
       });
       const drumMat = M(0x2f6f9f, 0.35, 0.6), ringMat = M(0x1c3f5a, 0.4, 0.7);
       [[4.4, -8.6], [5.2, -8.9], [4.8, -8.0]].forEach(([x, z]) => {
-        const g = new THREE.Group();
-        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.9, 20), drumMat); d.position.y = 0.45; g.add(d);
-        [0.2, 0.7].forEach(y => { const r = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.015, 6, 20), ringMat); r.rotation.x = Math.PI / 2; r.position.y = y; g.add(r); });
+        const g = new THREE.Group(); g.name = 'drum-group';
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.9, 20), drumMat); d.name = 'drum-body'; d.position.y = 0.45; g.add(d);
+        [0.2, 0.7].forEach(y => { const r = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.015, 6, 20), ringMat); r.name = 'drum-ring'; r.rotation.x = Math.PI / 2; r.position.y = y; g.add(r); });
         add(g, x, 0, z);
       });
       const hatMat = M(0xf5c518, 0.4);
@@ -906,63 +1829,600 @@
       // --- Manual call point + beacon (optional alarm step)
       const callPt = new THREE.Vector3(-0.55, 1.3, -3.4);
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.6, 0.1), materials.white); post.position.set(-0.55, 0.8, -3.5); scene.add(post);
-      const cpBox = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.1), M(0xd32f2f, 0.4)); cpBox.position.copy(callPt); cpBox.position.z = -3.43; scene.add(cpBox);
-      const cpLabel = signMesh('ALARM', '#d32f2f', '#ffffff', 0.34, 0.14); cpLabel.position.set(-0.55, 1.52, -3.42); scene.add(cpLabel);
-      const beaconMat = new THREE.MeshStandardMaterial({ color: 0xff2a1a, emissive: 0xff2a1a, emissiveIntensity: 0.2 });
+      const cpBox = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.1), M(0xd32f2f, 0.4)); cpBox.name = 'callpoint-box'; cpBox.position.copy(callPt); cpBox.position.z = -3.43; scene.add(cpBox);
+      const cpLabel = signMesh('ALARM', '#d32f2f', '#ffffff', 0.34, 0.14); cpLabel.name = 'callpoint-label'; cpLabel.position.set(-0.55, 1.52, -3.42); scene.add(cpLabel);
+      const beaconMat = trackLit(new THREE.MeshStandardMaterial({ color: 0xff2a1a, emissive: 0xff2a1a, emissiveIntensity: 0.2 }));
       const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), beaconMat); beacon.position.set(-0.55, 1.68, -3.5); scene.add(beacon);
       const callLight = new THREE.PointLight(0xff2a1a, 0, 9, 2); callLight.position.copy(beacon.position); scene.add(callLight);
 
-      // --- Site workers who evacuate to the assembly point when the alarm is raised
-      const vest = M(0xff9f1c, 0.7), skin = M(0xc8956d, 0.8), pants = M(0x2d3a4a, 0.9);
+      // --- Site workers: rigged, animated glTF characters (Mixamo rigs) who evacuate to the
+      // assembly point when the alarm is raised. Each one is a skeletonClone() of a shared source
+      // so three characters cost two downloads, and an AnimationMixer crossfades idle <-> walk.
+      const workerUrls = [
+        `${ASSET_CDN.samples}Soldier.glb`,
+        `${ASSET_CDN.samples}Xbot.glb`,
+        `${ASSET_CDN.samples}Soldier.glb`
+      ];
+      const workerSource = new Map();
+      function workerGltf(url) {
+        if (!workerSource.has(url)) workerSource.set(url, new Promise(res => gltfLoader.load(url, res, undefined, () => res(null))));
+        return workerSource.get(url);
+      }
       const workers = [[-4.2, -1.2, 8.8, 7.6], [6.8, -1.6, 10.2, 6.6], [0.2, -9.0, 9.4, 8.8]].map(([x, z, dx, dz], i) => {
-        const g = new THREE.Group();
-        const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.5, 6, 12), vest); torso.position.y = 1.15;
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 12), skin); head.position.y = 1.78;
-        const hat = hardHat(); hat.position.y = 1.8;
-        const legGeo = new THREE.BoxGeometry(0.15, 0.78, 0.17); legGeo.translate(0, -0.39, 0);
-        const L = new THREE.Mesh(legGeo, pants); L.position.set(-0.1, 0.8, 0);
-        const R = new THREE.Mesh(legGeo, pants); R.position.set(0.1, 0.8, 0);
-        g.add(torso, head, hat, L, R); add(g, x, 0, z, rnd(0, 6));
-        const dest = new THREE.Vector3(dx, 0, dz), home = new THREE.Vector3(x, 0, z);
-        return { g, torso, L, R, dest, home, i, reset() { g.position.copy(home); L.rotation.x = R.rotation.x = 0; } };
+        const g = new THREE.Group(); g.name = `worker-${i}`;
+        add(g, x, 0, z, rnd(0, 6));
+        // A contact shadow travels with the character: the shadow map alone cannot resolve the few
+        // centimetres where the boots meet the slab, and on Quest it is the only grounding the
+        // worker gets at a distance.
+        const disc = new THREE.Mesh(workerDiscGeo, contactMat);
+        disc.rotation.x = -Math.PI / 2;
+        disc.position.y = DECAL_Y;
+        disc.castShadow = false; disc.receiveShadow = false; disc.renderOrder = 2;
+        g.add(disc);
+        const w = {
+          g, i, blend: 0, mixer: null, walk: null, idle: null, moving: false,
+          dest: new THREE.Vector3(dx, 0, dz), home: new THREE.Vector3(x, 0, z)
+        };
+        w.reset = () => {
+          g.position.copy(w.home); g.rotation.y = 0; w.blend = 0;
+          if (w.walk) w.walk.weight = 0;
+          if (w.idle) w.idle.weight = 1;
+        };
+        workerGltf(workerUrls[i]).then(gltf => {
+          if (!gltf) return;
+          const model = skeletonClone(gltf.scene);
+          model.traverse(o => {
+            if (!o.isMesh) return;
+            o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+          });
+          const bb = new THREE.Box3().setFromObject(model);
+          const h = bb.max.y - bb.min.y;
+          if (h > 0.2) { const s = 1.78 / h; model.scale.setScalar(s); model.position.y = -bb.min.y * s; }
+          g.add(model);
+          csmRegister(model);
+          const clips = gltf.animations || [];
+          const find = names => clips.find(c => names.some(n => c.name.toLowerCase().includes(n)));
+          w.mixer = new THREE.AnimationMixer(model);
+          const walkClip = find(['walk', 'run']) || clips[0];
+          const idleClip = find(['idle', 'breathing', 'stand']) || clips[0];
+          if (walkClip) { w.walk = w.mixer.clipAction(walkClip); w.walk.play(); w.walk.weight = 0; }
+          if (idleClip) { w.idle = w.mixer.clipAction(idleClip); w.idle.play(); w.idle.weight = 1; }
+        });
+        return w;
       });
 
-      // --- Particle systems (sprites): fire, smoke, steam, embers
-      const fireTex = radialTex([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,200,90,.9)'], [0.6, 'rgba(255,90,20,.4)'], [1, 'rgba(255,40,0,0)']]);
-      const smokeTex = radialTex([[0, 'rgba(255,255,255,.55)'], [0.6, 'rgba(255,255,255,.25)'], [1, 'rgba(255,255,255,0)']]);
-      function pool(n, tex, blending) {
-        return Array.from({ length: n }, () => {
-          const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending, opacity: 0 }));
-          s.visible = false; scene.add(s);
-          return { s, age: 0, max: 1, alive: false, v: new THREE.Vector3(), size: 1 };
-        });
+      // --- Soft particles: a depth-only prepass feeds the particle shader -------------------
+      // One extra scene pass into a DepthTexture gives the sprite shader the geometry depth behind
+      // every particle, so fire and smoke dissolve over the last 0.7 m where they intersect the
+      // crate, the ground or a prop instead of ending on a hard edge. It is desktop-only: a full
+      // extra traversal is not in the Quest budget, so those tiers rely on the soft alpha that is
+      // baked into the atlases below. The pass also computes the shadow maps for the frame, which
+      // the colour pass then reuses, so it does not double the shadow cost.
+      const particleGroup = new THREE.Group();
+      particleGroup.name = 'particles';
+      scene.add(particleGroup);
+      let depthRT = null, depthMat = null, softU = null;
+      if (tier.softParticles) {
+        const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+        const w = Math.max(1, Math.floor(size.x)), h = Math.max(1, Math.floor(size.y));
+        depthMat = new THREE.MeshDepthMaterial();
+        depthMat.name = 'depth-prepass';
+        const dtex = new THREE.DepthTexture(w, h, THREE.UnsignedIntType);
+        depthRT = new THREE.WebGLRenderTarget(w, h, { depthTexture: dtex, depthBuffer: true });
+        softU = {
+          tDepth: { value: dtex },
+          uRes: { value: new THREE.Vector2(w, h) },
+          uNear: { value: camera.near },
+          uFar: { value: camera.far },
+          uSoft: { value: 0.7 }
+        };
       }
-      const fireP = pool(90, fireTex, THREE.AdditiveBlending), smokeP = pool(36, smokeTex, THREE.NormalBlending);
-      const steamP = pool(30, smokeTex, THREE.NormalBlending), emberP = pool(34, fireTex, THREE.AdditiveBlending);
-      function emit(p, x, y, z, vx, vy, vz, max, size) {
-        const q = p.find(o => !o.alive); if (!q) return;
-        q.alive = true; q.age = 0; q.max = max; q.size = size; q.v.set(vx, vy, vz); q.s.position.set(x, y, z); q.s.visible = true;
+
+      // --- Fire and smoke: flipbook atlases on GPU point sprites ----------------------------
+      // The single-frame additive sprites are gone. Fire is a 6x6 sheet (36 frames) and smoke an
+      // 8x8 sheet (64 frames); the atlas cell, the age and a per-particle seed ride in vertex
+      // attributes, so each system is exactly one draw call with one texture and no per-particle
+      // materials. Both sheets are baked as soft white alpha masks and all colour comes from the
+      // shader, which is what lets the same smoke texture drive the dark bulk layer and the
+      // additive layer that lights up orange near the fire.
+      function makeAtlas(cols, rows, cell, draw) {
+        const c = document.createElement('canvas');
+        c.width = cols * cell; c.height = rows * cell;
+        const g = c.getContext('2d');
+        g.clearRect(0, 0, c.width, c.height);
+        for (let r = 0; r < rows; r++) {
+          for (let col = 0; col < cols; col++) {
+            g.save(); g.translate(col * cell, r * cell);
+            draw(g, (r * cols + col) / (cols * rows), cell);
+            g.restore();
+          }
+        }
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = SRGB;
+        t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+        t.minFilter = t.magFilter = THREE.LinearFilter;
+        t.generateMipmaps = false;
+        return t;
       }
-      function step(p, dt, fn) {
-        p.forEach((q, i) => {
-          if (!q.alive) return;
-          q.age += dt; const k = q.age / q.max;
-          if (k >= 1) { q.alive = false; q.s.visible = false; return; }
-          q.s.position.addScaledVector(q.v, dt); fn(q, k, i);
-        });
+      // u is the cell's position in the loop (0..1), so consecutive cells are consecutive frames.
+      function drawFlameCell(g, u, S) {
+        const c = S / 2, TAU = Math.PI * 2;
+        g.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 9; i++) {
+          const s = i * 2.399;
+          const life = (u * 2 + i / 9) % 1;
+          const wobble = Math.sin(TAU * u + s) * 0.6 + Math.sin(TAU * 2 * u + s * 1.7) * 0.4;
+          const x = c + wobble * S * 0.14 * (0.35 + life);
+          const y = c + S * 0.30 - life * S * 0.56;
+          const r = Math.max(1, S * (0.25 - life * 0.14) * (0.85 + 0.30 * Math.sin(TAU * u + s * 2.1)));
+          const heat = 1 - life * 0.85;
+          const gr = g.createRadialGradient(x, y, 0, x, y, r);
+          gr.addColorStop(0, `rgba(255,255,255,${(0.42 * heat).toFixed(3)})`);
+          gr.addColorStop(0.35, `rgba(255,255,255,${(0.24 * heat).toFixed(3)})`);
+          gr.addColorStop(0.70, `rgba(255,255,255,${(0.10 * heat).toFixed(3)})`);
+          gr.addColorStop(1, 'rgba(255,255,255,0)');
+          g.fillStyle = gr;
+          g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+        }
+        g.globalCompositeOperation = 'source-over';
       }
+      function drawSmokeCell(g, u, S) {
+        const c = S / 2, TAU = Math.PI * 2;
+        g.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 12; i++) {
+          const s = i * 1.83;
+          const life = (u * 1.3 + i / 12) % 1;
+          const wobble = Math.sin(TAU * u + s) + 0.5 * Math.sin(TAU * 2 * u + s * 1.7);
+          const x = c + wobble * S * 0.17 * (0.25 + life);
+          const y = c + S * 0.34 - life * S * 0.60;
+          const r = Math.max(1, S * (0.13 + life * 0.22) * (0.85 + 0.30 * Math.sin(TAU * u + s * 2.3)));
+          const a = Math.max(0, (0.30 - life * 0.17) * (0.55 + 0.45 * Math.sin(TAU * u + s * 3.1)));
+          if (a < 0.004) continue;
+          const gr = g.createRadialGradient(x, y, 0, x, y, r);
+          gr.addColorStop(0, `rgba(255,255,255,${Math.min(1, a * 1.6).toFixed(3)})`);
+          gr.addColorStop(0.55, `rgba(255,255,255,${(a * 0.6).toFixed(3)})`);
+          gr.addColorStop(1, 'rgba(255,255,255,0)');
+          g.fillStyle = gr;
+          g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+        }
+        g.globalCompositeOperation = 'source-over';
+      }
+      const fireTex = makeAtlas(6, 6, 64, drawFlameCell);
+      const smokeTex = makeAtlas(8, 8, 64, drawSmokeCell);
+
+      const PARTICLE_VERT = `
+        attribute float aSize;
+        attribute float aAge;
+        attribute float aFrame;
+        attribute float aSeed;
+        uniform float uCols;
+        uniform float uRows;
+        uniform float uSizeScale;
+        uniform float uTime;
+        uniform float uI;
+        uniform vec3 uFire;
+        varying float vAge;
+        varying float vFrame;
+        varying float vSeed;
+        varying float vLit;
+        void main() {
+          if ( aSize <= 0.0 ) { gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 ); gl_PointSize = 0.0; return; }
+          vec3 p = position;
+          // Slow lateral drift, so the plume never reads as a straight column.
+          p.x += sin( uTime * 1.7 + aSeed * 21.0 ) * 0.16 * aAge;
+          p.z += cos( uTime * 1.4 + aSeed * 17.0 ) * 0.16 * aAge;
+          vec4 mv = modelViewMatrix * vec4( p, 1.0 );
+          gl_Position = projectionMatrix * mv;
+          float ps = aSize * uSizeScale / max( 0.05, -mv.z );
+        #if MODE == 0
+          ps *= 0.45 + 0.75 * uI;
+        #endif
+          gl_PointSize = clamp( ps, 1.0, 512.0 );
+          vAge = aAge; vFrame = aFrame; vSeed = aSeed;
+          vLit = uI * exp( -length( position - uFire ) * 0.42 );
+        }`;
+      const PARTICLE_FRAG = `
+        uniform sampler2D uMap;
+        uniform float uCols;
+        uniform float uRows;
+        uniform float uI;
+        uniform float uOpacity;
+        uniform vec3 uTint;
+        varying float vAge;
+        varying float vFrame;
+        varying float vSeed;
+        varying float vLit;
+      #ifdef SOFT_PARTICLES
+        uniform sampler2D tDepth;
+        uniform vec2 uRes;
+        uniform float uNear;
+        uniform float uFar;
+        uniform float uSoft;
+        float viewDepth( float d ) {
+          float z = d * 2.0 - 1.0;
+          return ( 2.0 * uNear * uFar ) / ( uFar + uNear - z * ( uFar - uNear ) );
+        }
+      #endif
+        void main() {
+          vec2 cell = vec2( mod( vFrame, uCols ), floor( vFrame / uCols ) );
+          vec2 uv = vec2( gl_PointCoord.x, 1.0 - gl_PointCoord.y );
+          uv = ( uv + cell ) / vec2( uCols, uRows );
+          float alpha = texture2D( uMap, uv ).a * uOpacity;
+          vec3 col;
+        #if MODE == 0
+          col = mix( vec3( 1.0, 0.94, 0.70 ), vec3( 1.0, 0.26, 0.04 ), smoothstep( 0.0, 0.9, vAge ) );
+          alpha *= smoothstep( 0.0, 0.12, vAge ) * ( 1.0 - smoothstep( 0.45, 1.0, vAge ) ) * ( 0.25 + 0.90 * uI );
+        #elif MODE == 1
+          float lit = clamp( vLit, 0.0, 0.85 );
+          col = mix( vec3( 0.24, 0.26, 0.28 ), vec3( 1.0, 0.42, 0.12 ), lit );
+          alpha *= ( 1.0 - vAge ) * min( 1.0, vAge * 7.0 ) * ( 0.25 + 0.75 * uI );
+        #elif MODE == 2
+          col = vec3( 0.88, 0.92, 0.95 );
+          alpha *= ( 1.0 - vAge );
+        #else
+          col = vec3( 1.0, 0.55 + 0.25 * vSeed, 0.18 ) * ( 0.55 + 0.65 * uI );
+          alpha *= ( 1.0 - vAge ) * ( 0.70 + 0.30 * sin( vSeed * 40.0 ) );
+        #endif
+        #ifdef SOFT_PARTICLES
+          float sceneZ = viewDepth( texture2D( tDepth, gl_FragCoord.xy / uRes ).x );
+          alpha *= clamp( ( sceneZ - viewDepth( gl_FragCoord.z ) ) / uSoft, 0.0, 1.0 );
+        #endif
+          if ( alpha <= 0.002 ) discard;
+          gl_FragColor = vec4( col * uTint, alpha );
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`;
+
+      // One CPU pool per system, mirrored into dynamic vertex attributes each frame. Dead slots are
+      // collapsed by writing a zero size, which the vertex shader turns into a culled point.
+      function particleField({ max, tex, cols, rows, blending, mode, gravity = 0, sizeFn }) {
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array(max * 3);
+        const aSize = new Float32Array(max);
+        const aAge = new Float32Array(max);
+        const aFrame = new Float32Array(max);
+        const aSeed = new Float32Array(max);
+        const dyn = THREE.DynamicDrawUsage;
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(dyn));
+        geo.setAttribute('aSize', new THREE.BufferAttribute(aSize, 1).setUsage(dyn));
+        geo.setAttribute('aAge', new THREE.BufferAttribute(aAge, 1).setUsage(dyn));
+        geo.setAttribute('aFrame', new THREE.BufferAttribute(aFrame, 1).setUsage(dyn));
+        geo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1).setUsage(dyn));
+
+        const uniforms = {
+          uMap: { value: tex },
+          uCols: { value: cols }, uRows: { value: rows },
+          uSizeScale: { value: 400 }, uTime: { value: 0 }, uI: { value: 0 },
+          uOpacity: { value: 1 },
+          uTint: { value: new THREE.Color(1, 1, 1) },
+          uFire: { value: new THREE.Vector3(2.2, 1.0, -7.0) }
+        };
+        const defines = { MODE: mode };
+        if (softU) { defines.SOFT_PARTICLES = ''; Object.assign(uniforms, softU); }
+        const points = new THREE.Points(geo, new THREE.ShaderMaterial({
+          uniforms, defines, vertexShader: PARTICLE_VERT, fragmentShader: PARTICLE_FRAG,
+          transparent: true, depthWrite: false, depthTest: true, blending
+        }));
+        points.frustumCulled = false;
+        particleGroup.add(points);
+
+        const parts = Array.from({ length: max }, () => ({
+          alive: false, age: 0, max: 1, size: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, frame: 0, fps: 0, seed: 0
+        }));
+        let cursor = 0;
+
+        function emit(x, y, z, vx, vy, vz, life, size) {
+          for (let n = 0; n < max; n++) {
+            const q = parts[cursor]; cursor = (cursor + 1) % max;
+            if (q.alive) continue;
+            q.alive = true; q.age = 0; q.max = life; q.size = size;
+            q.x = x; q.y = y; q.z = z; q.vx = vx; q.vy = vy; q.vz = vz;
+            q.seed = Math.random();
+            q.frame = Math.floor(q.seed * (cols * rows - 1));
+            q.fps = (cols * rows) / life;
+            return;
+          }
+        }
+
+        function update(dt, t, I) {
+          uniforms.uTime.value = t; uniforms.uI.value = I;
+          for (let i = 0; i < max; i++) {
+            const q = parts[i];
+            if (!q.alive) { if (aSize[i] !== 0) aSize[i] = 0; continue; }
+            q.age += dt;
+            if (q.age >= q.max) { q.alive = false; aSize[i] = 0; continue; }
+            const k = q.age / q.max;
+            q.vy -= gravity * dt;
+            q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
+            q.frame = Math.min(cols * rows - 1, q.frame + q.fps * dt);
+            pos[i * 3] = q.x; pos[i * 3 + 1] = q.y; pos[i * 3 + 2] = q.z;
+            aSize[i] = sizeFn(q, k); aAge[i] = k; aFrame[i] = q.frame; aSeed[i] = q.seed;
+          }
+          geo.attributes.position.needsUpdate = true;
+          geo.attributes.aSize.needsUpdate = true;
+          geo.attributes.aAge.needsUpdate = true;
+          geo.attributes.aFrame.needsUpdate = true;
+          geo.attributes.aSeed.needsUpdate = true;
+        }
+        return { emit, update, points };
+      }
+
+      // Pool sizes follow the tier: Quest 1 gets roughly a third of the desktop budget.
+      const budget = n => Math.max(8, Math.round(n * tier.particleScale));
+      const fireP = particleField({ max: budget(110), tex: fireTex, cols: 6, rows: 6, blending: THREE.AdditiveBlending, mode: 0, sizeFn: (q, k) => q.size * (1 - k * 0.5) });
+      const smokeP = particleField({ max: budget(44), tex: smokeTex, cols: 8, rows: 8, blending: THREE.NormalBlending, mode: 1, sizeFn: (q, k) => q.size * (1 + k * 2.1) });
+      // The second smoke layer is the one that reads as lit by the fire: same atlas, additive, and
+      // tinted towards the flame colour by the distance term in the vertex shader.
+      const smokeGlowP = particleField({ max: budget(26), tex: smokeTex, cols: 8, rows: 8, blending: THREE.AdditiveBlending, mode: 1, sizeFn: (q, k) => q.size * (1 + k * 1.6) });
+      const steamP = particleField({ max: budget(34), tex: smokeTex, cols: 8, rows: 8, blending: THREE.NormalBlending, mode: 2, sizeFn: (q, k) => q.size * (1 + k * 1.2) });
+      const emberP = particleField({ max: budget(40), tex: fireTex, cols: 6, rows: 6, blending: THREE.AdditiveBlending, mode: 3, gravity: 0.4, sizeFn: q => q.size });
+      const particleFields = [fireP, smokeP, smokeGlowP, steamP, emberP];
+
+      // --- Dust motes in the light -------------------------------------------------------------
+      // Fine additive specks hanging in the sun shafts. The drift is entirely a sine field in the
+      // vertex shader, so the CPU cost is one uniform write per frame, and the whole layer is a
+      // single draw call - the same order as one particle pool, so it stays on every tier.
+      const dustTex = radialTex([[0, 'rgba(255,250,235,1)'], [0.4, 'rgba(255,246,220,0.5)'], [1, 'rgba(255,244,214,0)']]);
+      const dustCount = { desktop: 320, quest2: 180, quest1: 96 }[tierName] || 320;
+      const dustGeo = new THREE.BufferGeometry();
+      {
+        const pos = new Float32Array(dustCount * 3), seed = new Float32Array(dustCount);
+        for (let i = 0; i < dustCount; i++) {
+          pos[i * 3] = rnd(-13, 13); pos[i * 3 + 1] = rnd(0.15, 7.5); pos[i * 3 + 2] = rnd(-13, 13);
+          seed[i] = Math.random();
+        }
+        dustGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        dustGeo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+      }
+      const dust = new THREE.Points(dustGeo, new THREE.ShaderMaterial({
+        uniforms: {
+          uMap: { value: dustTex }, uTime: { value: 0 }, uSizeScale: { value: 400 },
+          uOpacity: { value: 1 }, uColor: { value: new THREE.Color(0xfff2d6) }
+        },
+        vertexShader: `
+          attribute float aSeed;
+          uniform float uTime;
+          uniform float uSizeScale;
+          varying float vFade;
+          void main() {
+            vec3 p = position;
+            p.x += sin( uTime * 0.13 + aSeed * 31.0 ) * 0.85;
+            p.z += cos( uTime * 0.10 + aSeed * 17.0 ) * 0.85;
+            p.y += sin( uTime * 0.24 + aSeed * 53.0 ) * 0.40;
+            vec4 mv = modelViewMatrix * vec4( p, 1.0 );
+            gl_PointSize = clamp( uSizeScale * ( 0.008 + aSeed * 0.018 ) / max( 0.05, -mv.z ), 1.0, 24.0 );
+            gl_Position = projectionMatrix * mv;
+            // Distant motes are sub-pixel and would just shimmer, so they fade out past ~12 m.
+            vFade = smoothstep( 40.0, 5.0, -mv.z ) * ( 0.30 + 0.70 * aSeed );
+          }`,
+        fragmentShader: `
+          uniform sampler2D uMap;
+          uniform vec3 uColor;
+          uniform float uOpacity;
+          varying float vFade;
+          void main() {
+            float a = texture2D( uMap, gl_PointCoord ).a * vFade * uOpacity;
+            if ( a <= 0.002 ) discard;
+            gl_FragColor = vec4( uColor, a );
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }`,
+        transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending
+      }));
+      dust.name = 'dust-motes';
+      dust.frustumCulled = false;
+      scene.add(dust);
+
+      // Screen size of a one-metre point at one metre, refreshed whenever the buffer changes.
+      const drawSize = new THREE.Vector2();
+      function updateParticleScale() {
+        renderer.getDrawingBufferSize(drawSize);
+        const scale = 0.5 * drawSize.y * camera.projectionMatrix.elements[5];
+        particleFields.forEach(p => { p.points.material.uniforms.uSizeScale.value = scale; });
+        dust.material.uniforms.uSizeScale.value = scale;
+      }
+      updateParticleScale();
+
       const acc = { f: 0, s: 0, st: 0, e: 0 };
-      const glow = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: fireTex, color: 0xff6a20, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+      const glow = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: radialTex([[0, 'rgba(255,255,255,.85)'], [0.45, 'rgba(255,170,60,.35)'], [1, 'rgba(255,90,20,0)']]), color: 0xff6a20, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
       glow.rotation.x = -Math.PI / 2; glow.position.set(2.2, 0.03, -7); scene.add(glow);
 
-      // --- Post-processing (bloom for fire, beacon, lamps)
-      const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
-      const composer = new EffectComposer(renderer, rt);
-      composer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
-      composer.setSize(innerWidth, innerHeight);
-      composer.addPass(new RenderPass(scene, camera));
-      composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 1.0));
-      composer.addPass(new OutputPass());
+      // --- Desktop-only volumetric fire ------------------------------------------------------
+      // The cone stand-ins are replaced on the desktop tier by a raymarched volume: 40 samples of
+      // warp-noise density accumulated back to front inside the box and pushed through a blackbody
+      // ramp, so the base reads white-hot and the tips fall away to deep red. Back faces are drawn
+      // so the march always runs camera -> exit point, whether or not the camera is inside it.
+      let fireVol = null;
+      if (tier.volumetric) {
+        fireVol = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.4, 1.35), new THREE.ShaderMaterial({
+          transparent: true, depthWrite: false, depthTest: true, side: THREE.BackSide,
+          blending: THREE.AdditiveBlending,
+          uniforms: {
+            uTime: { value: 0 }, uI: { value: 1 },
+            uCam: { value: new THREE.Vector3() },
+            uHalf: { value: new THREE.Vector3(0.85, 1.2, 0.675) }
+          },
+          vertexShader: `
+            varying vec3 vLocal;
+            void main() {
+              vLocal = position;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+            }`,
+          fragmentShader: `
+            uniform float uTime;
+            uniform float uI;
+            uniform vec3 uCam;
+            uniform vec3 uHalf;
+            varying vec3 vLocal;
+            float hash( vec3 p ) {
+              p = fract( p * 0.3183099 + vec3( 0.1, 0.2, 0.3 ) );
+              p *= 17.0;
+              return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) );
+            }
+            float noise( vec3 x ) {
+              vec3 i = floor( x ), f = fract( x );
+              f = f * f * ( 3.0 - 2.0 * f );
+              return mix( mix( mix( hash( i ), hash( i + vec3( 1.0, 0.0, 0.0 ) ), f.x ),
+                               mix( hash( i + vec3( 0.0, 1.0, 0.0 ) ), hash( i + vec3( 1.0, 1.0, 0.0 ) ), f.x ), f.y ),
+                          mix( mix( hash( i + vec3( 0.0, 0.0, 1.0 ) ), hash( i + vec3( 1.0, 0.0, 1.0 ) ), f.x ),
+                               mix( hash( i + vec3( 0.0, 1.0, 1.0 ) ), hash( i + vec3( 1.0, 1.0, 1.0 ) ), f.x ), f.y ), f.z );
+            }
+            float fbm( vec3 p ) {
+              float a = 0.5, s = 0.0;
+              for ( int i = 0; i < 4; i ++ ) { s += a * noise( p ); p = p * 2.03 + vec3( 1.7, 2.3, 3.1 ); a *= 0.5; }
+              return s;
+            }
+            void main() {
+              vec3 ray = vLocal - uCam;
+              float len = max( length( ray ), 1e-4 );
+              vec3 rd = ray / len;
+              float stride = len / 40.0;
+              vec3 p = uCam;
+              vec3 acc = vec3( 0.0 );
+              float dens = 0.0;
+              for ( int i = 0; i < 40; i ++ ) {
+                p += rd * stride;
+                vec3 q = p / uHalf;
+                if ( all( lessThan( abs( q ), vec3( 1.0 ) ) ) ) {
+                  float up = clamp( 1.0 - ( q.y + 1.0 ) * 0.5, 0.0, 1.0 );
+                  float d = fbm( vec3( q.x * 2.4, q.y * 2.4 - uTime * 2.6, q.z * 2.4 ) ) * 1.55;
+                  d -= up * 2.0;
+                  d -= length( q.xz ) * 1.3;
+                  d = max( d, 0.0 ) * ( 0.3 + 0.7 * uI );
+                  acc += vec3( 1.0, 0.40, 0.10 ) * d * stride * 2.4;
+                  dens += d * stride * 1.5;
+                }
+              }
+              vec3 col = mix( acc, vec3( 1.0, 0.93, 0.74 ), clamp( dens * 0.9, 0.0, 0.8 ) );
+              gl_FragColor = vec4( col, clamp( dens, 0.0, 1.0 ) );
+              #include <tonemapping_fragment>
+              #include <colorspace_fragment>
+            }`
+        }));
+        fireVol.position.set(0, 1.2, 0);
+        fireVol.name = 'volumetric-fire';
+        fireBase.add(fireVol);
+      }
+      // World-space centre of the fire volume, used for the shader-side camera position.
+      const fireOrigin = new THREE.Vector3(2.2, 1.2, -7);
+
+      // The additive passes must stay out of their own depth prepass: a sprite would otherwise be
+      // occluded by the sprite in front of it.
+      const softExclude = [particleGroup, glow, sprayGroup];
+      if (fireVol) softExclude.push(fireVol);
+      flames.forEach(f => softExclude.push(f.mesh));
+
+      // The depth target follows the drawing buffer; a resize reallocates it and re-points the
+      // shared depth uniform, which every soft-particle material samples.
+      const resizeDepthRT = () => {
+        if (!depthRT) return;
+        const s = renderer.getDrawingBufferSize(new THREE.Vector2());
+        const w = Math.max(1, Math.floor(s.x)), h = Math.max(1, Math.floor(s.y));
+        if (depthRT.width === w && depthRT.height === h) return;
+        depthRT.dispose();
+        const dtex = new THREE.DepthTexture(w, h, THREE.UnsignedIntType);
+        depthRT = new THREE.WebGLRenderTarget(w, h, { depthTexture: dtex, depthBuffer: true });
+        softU.tDepth.value = dtex;
+        softU.uRes.value.set(w, h);
+      };
+
+      function depthPass() {
+        if (!depthRT) return;
+        resizeDepthRT();
+        const hidden = softExclude.map(o => o.visible);
+        softExclude.forEach(o => { o.visible = false; });
+        const prevOverride = scene.overrideMaterial;
+        scene.overrideMaterial = depthMat;
+        renderer.shadowMap.autoUpdate = true;      // the frame's shadow maps are computed here
+        renderer.setRenderTarget(depthRT);
+        renderer.render(scene, camera);
+        renderer.setRenderTarget(null);
+        scene.overrideMaterial = prevOverride;
+        renderer.shadowMap.autoUpdate = false;     // and reused by the colour pass
+        softExclude.forEach((o, i) => { o.visible = hidden[i]; });
+      }
+
+      // --- Post-processing: pmndrs/postprocessing stack, desktop tier only. Fullscreen passes
+      // are far too expensive on the mobile GPUs in Quest 1 and 2, so the Quest tiers keep the
+      // direct render path. SSAO + subtle depth of field + a graded LUT (procedurally baked) +
+      // film grain + bloom (lowered) + vignette + ACES tone mapping + SMAA, then a screen-space
+      // heat refraction keyed to where the fire sits on screen.
+      // The LUT is a 32^3 identity ramp bent towards cool shadows and warm highlights. pmndrs
+      // samples it raw, so it is stored linearly in a float texture to avoid 8-bit banding.
+      function makeGradeLut(size = 32) {
+        const data = new Float32Array(size * size * size * 4);
+        const curve = v => Math.max(0, Math.min(1, 0.5 + (v - 0.5) * 1.09 + (1 - v) * 0.014));
+        let p = 0;
+        for (let ig = 0; ig < size; ig++) {          // texture row   = green
+          for (let ib = 0; ib < size; ib++) {        // texture slab  = blue
+            for (let ir = 0; ir < size; ir++) {      // column in slab = red
+              const r = curve(ir / (size - 1)), g = curve(ig / (size - 1)), b = curve(ib / (size - 1));
+              const lum = Math.max(0, Math.min(1, 0.2126 * r + 0.7152 * g + 0.0722 * b));
+              const shadow = (1 - Math.min(1, lum * 1.7)) * 0.16, high = lum * lum;
+              data[p++] = Math.max(0, Math.min(1, r + 0.13 * shadow + 0.030 * high));
+              data[p++] = Math.max(0, Math.min(1, g + 0.05 * shadow + 0.010 * high));
+              data[p++] = Math.max(0, Math.min(1, b + 0.22 * shadow - 0.010 * high));
+              data[p++] = 1;
+            }
+          }
+        }
+        const tex = new THREE.DataTexture(data, size * size, size, THREE.RGBAFormat, THREE.FloatType);
+        tex.minFilter = tex.magFilter = THREE.LinearFilter;
+        tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.needsUpdate = true;
+        return tex;
+      }
+
+      // Screen-space heat shimmer. mainUv effects may not share a pass with convolution
+      // effects, so this gets a pass of its own.
+      class HeatDistortionEffect extends Effect {
+        constructor() {
+          super('HeatDistortionEffect', `
+            uniform vec2 uFire;
+            uniform float uAmount;
+            uniform float uTime;
+            void mainUv(inout vec2 uv) {
+              vec2 d = (uv - uFire) * vec2(1.0, 0.62);
+              float m = smoothstep(0.26, 0.02, length(d)) * uAmount;
+              uv += vec2(sin(uTime * 7.0 + uv.y * 70.0), cos(uTime * 5.5 + uv.x * 60.0)) * 0.0075 * m;
+            }`, {
+            uniforms: new Map([
+              ['uFire', new THREE.Uniform(new THREE.Vector2(0.5, 0.5))],
+              ['uAmount', new THREE.Uniform(0)],
+              ['uTime', new THREE.Uniform(0)]
+            ])
+          });
+        }
+      }
+      const heatEffect = tier.postFX ? new HeatDistortionEffect() : null;
+
+      let composer = null, normalPass = null;
+      if (tier.postFX) {
+        composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType, multisampling: 4 });
+        composer.setSize(innerWidth, innerHeight);
+        composer.addPass(new RenderPass(scene, camera));
+        normalPass = new NormalPass(scene, camera);
+        composer.addPass(normalPass);
+        composer.addPass(new EffectPass(camera,
+          new SSAOEffect(camera, normalPass.texture, {
+            blendFunction: BlendFunction.MULTIPLY, samples: 17, rings: 7, radius: 0.12, intensity: 1.5,
+            luminanceInfluence: 0.6, worldDistanceThreshold: 40, worldDistanceFalloff: 12, bias: 0.03
+          }),
+          new DepthOfFieldEffect(camera, { focusDistance: 0.008, focalLength: 0.05, bokehScale: 2.2, resolutionScale: 0.5 })
+        ));
+        const grainEffect = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: true });
+        grainEffect.blendMode.opacity.value = 0.055;
+        composer.addPass(new EffectPass(camera,
+          new BloomEffect({ intensity: 0.55, luminanceThreshold: 0.82, luminanceSmoothing: 0.35, mipmapBlur: true, radius: 0.72, levels: 7 }),
+          new LUT3DEffect(makeGradeLut(), { blendFunction: BlendFunction.SRC }),
+          grainEffect,
+          new VignetteEffect({ offset: 0.3, darkness: 0.55 }),
+          new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })
+        ));
+        composer.addPass(new EffectPass(camera, heatEffect));
+        // SMAA declares the convolution attribute, so it must live in a pass of its own.
+        composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.HIGH })));
+      }
 
       // --- HUD additions
       const heatCard = document.createElement('section'); heatCard.className = 'card';
@@ -974,7 +2434,7 @@
       document.body.appendChild(heatVg);
 
       // --- State
-      let alarmOn = false, heat = 0, peakHeat = 0, warned = false, lastStart = -1, bob = 0, eng = null;
+      let alarmOn = false, heat = 0, peakHeat = 0, warned = false, lastStart = -1, bob = 0, burn = 0;
 
       function raiseAlarm() {
         alarmOn = true; alarmText.textContent = 'ACTIVE'; alarmText.style.color = 'var(--danger)';
@@ -993,42 +2453,89 @@
         return e;
       }
 
-      // --- Procedural audio (only when Sound is on)
-      function initAudio() {
-        const ctx = audioContext, len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
-        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-        const chain = (type, freq, q) => {
-          const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true;
-          const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
-          const g = ctx.createGain(); g.gain.value = 0; s.connect(f); f.connect(g); g.connect(ctx.destination); s.start(); return g;
-        };
-        const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 620;
-        const og = ctx.createGain(); og.gain.value = 0; osc.connect(og); og.connect(ctx.destination); osc.start();
-        eng = { rumble: chain('lowpass', 380, 0.7), crackle: chain('bandpass', 2600, 1.4), hiss: chain('highpass', 3500, 0.5), osc, og };
+      // --- Positional audio ------------------------------------------------------------------
+      // Crackle, siren and the discharge hiss are THREE.PositionalAudio sources in three's own Web
+      // Audio graph. Each one hangs off the object it belongs to - the fire, the manual call point
+      // and the extinguisher nozzle - so the scene graph pans and attenuates it as the player moves
+      // instead of mixing everything flat into the master bus.
+      const AUDIO_CDN = 'https://upload.wikimedia.org/wikipedia/commons/';
+      const AUDIO_CLIPS = {
+        crackle: `${AUDIO_CDN}8/80/Bones_breaking_wood_fire_ice_crackling.ogg`,
+        siren: `${AUDIO_CDN}f/f9/Motorsirene_-_Feuerwehralarm.ogg`,
+        hiss: `${AUDIO_CDN}0/02/Can_of_compressed_air.ogg`
+      };
+      const alarmAnchor = new THREE.Object3D();
+      alarmAnchor.position.copy(callPt);
+      let audioListener = null, audioSources = null;
+
+      // The listener is created on the first frame with Sound on, i.e. after the click on the Sound
+      // button, so Chrome's autoplay policy lets the context start instead of suspending it.
+      function initPositionalAudio() {
+        if (audioListener) return;
+        audioListener = new THREE.AudioListener();
+        camera.add(audioListener);
+        scene.add(alarmAnchor);
+        const loader = new THREE.AudioLoader();
+        audioSources = {};
+        // [name, clip, parent, refDistance (full-volume radius), maxDistance, peak gain]
+        [
+          ['crackle', AUDIO_CLIPS.crackle, fireBase,    2.2, 30, 0.55],
+          ['siren',   AUDIO_CLIPS.siren,   alarmAnchor, 5.0, 70, 0.50],
+          ['hiss',    AUDIO_CLIPS.hiss,    nozzle,      1.0, 14, 0.45]
+        ].forEach(([name, url, parent, ref, max, peak]) => {
+          const snd = new THREE.PositionalAudio(audioListener);
+          snd.setDistanceModel('inverse');
+          snd.setRefDistance(ref);
+          snd.setMaxDistance(max);
+          snd.setRolloffFactor(1.1);
+          snd.setLoop(true);
+          snd.gain.gain.value = 0;
+          snd.userData.peak = peak;
+          parent.add(snd);
+          audioSources[name] = snd;
+          loader.load(url, buffer => snd.setBuffer(buffer), undefined, () => { /* audio is optional */ });
+        });
       }
-      function updateAudio(I, t) {
-        if (soundOn && audioContext) {
-          if (!eng) initAudio();
-          if (audioContext.state === 'suspended') audioContext.resume();
-          const T = audioContext.currentTime;
-          eng.rumble.gain.setTargetAtTime(0.10 * I, T, 0.1);
-          eng.crackle.gain.setTargetAtTime(Math.random() < 0.35 ? 0.09 * I : 0.01 * I, T, 0.02);
-          eng.hiss.gain.setTargetAtTime(spraying ? 0.1 : 0, T, 0.08);
-          eng.osc.frequency.setTargetAtTime(Math.sin(t * 4) > 0 ? 820 : 620, T, 0.01);
-          eng.og.gain.setTargetAtTime(alarmOn && active ? 0.03 : 0, T, 0.05);
-        } else if (eng) {
-          const T = audioContext.currentTime;
-          ['rumble', 'crackle', 'hiss', 'og'].forEach(k => eng[k].gain.setTargetAtTime(0, T, 0.05));
+
+      // Fades every source toward its target gain and starts/stops the buffer so a silent source
+      // costs nothing. Nothing happens until Sound is switched on and the clips have downloaded.
+      function fadeAudio(targets) {
+        const ctx = audioListener.context, T = ctx.currentTime;
+        for (const name in targets) {
+          const snd = audioSources[name];
+          if (!snd || !snd.buffer) continue;
+          const target = targets[name];
+          snd.gain.gain.setTargetAtTime(target, T, 0.12);
+          if (target > 0.0005 && !snd.isPlaying) snd.play();
+          else if (target <= 0.0005 && snd.isPlaying) snd.stop();
         }
+      }
+
+      function updateAudio(I, t) {
+        if (!soundOn) { if (audioSources) fadeAudio({ crackle: 0, siren: 0, hiss: 0 }); return; }
+        if (!audioListener) initPositionalAudio();
+        if (audioListener.context.state === 'suspended') audioListener.context.resume();
+        if (!audioSources) return;
+        fadeAudio({
+          crackle: audioSources.crackle.userData.peak * I * (Math.random() < 0.35 ? 1 : 0.5),
+          siren: alarmOn && active ? audioSources.siren.userData.peak : 0,
+          hiss: spraying ? audioSources.hiss.userData.peak : 0
+        });
       }
 
       function update(dt, t) {
         if (startedAt !== lastStart) {
-          lastStart = startedAt; alarmOn = false; heat = 0; peakHeat = 0; warned = false;
+          lastStart = startedAt; alarmOn = false; heat = 0; peakHeat = 0; warned = false; burn = 0;
           workers.forEach(w => w.reset()); beaconMat.emissiveIntensity = 0.2; callLight.intensity = 0;
           alarmText.textContent = 'Not raised'; alarmText.style.color = '';
         }
         const I = fireIntensity / 100;
+        const ps = tier.particleScale;
+
+        // The soot ring under the fire grows while the fire burns and fades back once it is out.
+        burn = Math.max(0, Math.min(1, burn + (active && I > 0.05 ? I * dt * 0.09 : -dt * 0.35)));
+        scorch.material.opacity = burn * 0.9;
+        scorch.visible = burn > 0.02;
 
         // Fire re-flash: the fire slowly regrows if you stop discharging before it is out.
         if (active && pinRemoved && !spraying && fireIntensity > 0 && fireIntensity < 100) {
@@ -1037,7 +2544,7 @@
         flames.forEach(f => { f.mesh.scale.y = Math.max(0.03, I); f.mesh.scale.x *= Math.max(0.05, I); f.mesh.scale.z *= Math.max(0.05, I); });
 
         // Radiant heat exposure: stand too close and you accumulate heat.
-        const d = Math.hypot(camera.position.x - 2.2, camera.position.z + 7);
+        const d = Math.hypot(cameraWorld.x - 2.2, cameraWorld.z + 7);
         if (active && I > 0.12) {
           const rate = d < 1.5 ? 40 : d < 2.6 ? 20 : d < 3.6 ? (3.6 - d) * 20 : 0;
           heat = rate ? Math.min(100, heat + rate * I * dt) : Math.max(0, heat - 12 * dt);
@@ -1049,48 +2556,60 @@
         if (heat < 30) warned = false;
         if (active && heat >= 100) { mistakes += 2; showToast('Too much heat exposure.'); completeScenario(false); }
 
-        // Particles
-        acc.f += 75 * I * dt; while (acc.f >= 1) { acc.f--; emit(fireP, 2.2 + rnd(-0.55, 0.55), 0.95, -7 + rnd(-0.42, 0.42), rnd(-0.15, 0.15), rnd(1.2, 2.4), rnd(-0.15, 0.15), rnd(0.6, 1.2), rnd(0.8, 1.5)); }
-        acc.s += 9 * I * dt; while (acc.s >= 1) { acc.s--; emit(smokeP, 2.2 + rnd(-0.4, 0.4), 2.0, -7 + rnd(-0.3, 0.3), rnd(0.15, 0.35), rnd(0.7, 1.2), rnd(-0.1, 0.1), rnd(2.5, 4), rnd(0.9, 1.4)); }
-        acc.e += 10 * I * dt; while (acc.e >= 1) { acc.e--; emit(emberP, 2.2 + rnd(-0.5, 0.5), 1.3, -7 + rnd(-0.4, 0.4), rnd(-0.5, 0.5), rnd(1.5, 3), rnd(-0.5, 0.5), rnd(1.2, 2.4), rnd(0.07, 0.13)); }
-        if (spraying && active && efficiency() > 0.3) { acc.st += 22 * dt; while (acc.st >= 1) { acc.st--; emit(steamP, 2.2 + rnd(-0.5, 0.5), 1.1, -7 + rnd(-0.4, 0.4), rnd(-0.3, 0.3), rnd(1, 1.8), rnd(-0.3, 0.3), rnd(0.9, 1.6), rnd(0.6, 1)); } }
-        step(fireP, dt, (q, k, i) => {
-          q.v.x += Math.sin(t * 5 + i) * dt * 0.5;
-          q.s.scale.setScalar(q.size * (1 - k * 0.75) * (0.35 + 0.65 * I));
-          q.s.material.opacity = (k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85) * 0.85;
-          q.s.material.color.setRGB(1, 0.85 - 0.6 * k, 0.45 - 0.4 * k);
-        });
-        step(smokeP, dt, (q, k) => {
-          q.s.scale.setScalar(q.size * (1 + k * 2.2) * (0.5 + 0.5 * I));
-          q.s.material.opacity = 0.32 * (1 - k) * Math.min(1, k * 6) * (0.3 + 0.7 * I);
-          q.s.material.color.setRGB(0.33, 0.35, 0.36);
-        });
-        step(steamP, dt, (q, k) => { q.s.scale.setScalar(q.size * (1 + k * 1.2)); q.s.material.opacity = 0.35 * (1 - k); q.s.material.color.setRGB(1, 1, 1); });
-        step(emberP, dt, (q, k, i) => { q.v.y -= dt * 0.4; q.s.scale.setScalar(q.size); q.s.material.opacity = (1 - k) * (0.7 + 0.3 * Math.sin(t * 30 + i)); q.s.material.color.setRGB(1, 0.6, 0.2); });
+        // Particles (emission rates scaled by tier so Quest 1 stays inside budget)
+        acc.f += 75 * ps * I * dt; while (acc.f >= 1) { acc.f--; fireP.emit(2.2 + rnd(-0.55, 0.55), 0.95, -7 + rnd(-0.42, 0.42), rnd(-0.15, 0.15), rnd(1.2, 2.4), rnd(-0.15, 0.15), rnd(0.6, 1.2), rnd(0.8, 1.5)); }
+        acc.s += 9 * ps * I * dt; while (acc.s >= 1) {
+          acc.s--;
+          const sx = 2.2 + rnd(-0.4, 0.4), sz = -7 + rnd(-0.3, 0.3);
+          smokeP.emit(sx, 2.0, sz, rnd(0.15, 0.35), rnd(0.7, 1.2), rnd(-0.1, 0.1), rnd(2.5, 4), rnd(0.9, 1.4));
+          smokeGlowP.emit(sx, 1.85, sz, rnd(0.1, 0.3), rnd(0.6, 1.0), rnd(-0.1, 0.1), rnd(2.2, 3.4), rnd(0.7, 1.1));
+        }
+        acc.e += 10 * ps * I * dt; while (acc.e >= 1) { acc.e--; emberP.emit(2.2 + rnd(-0.5, 0.5), 1.3, -7 + rnd(-0.4, 0.4), rnd(-0.5, 0.5), rnd(1.5, 3), rnd(-0.5, 0.5), rnd(1.2, 2.4), rnd(0.07, 0.13)); }
+        if (spraying && active && efficiency() > 0.3) { acc.st += 22 * ps * dt; while (acc.st >= 1) { acc.st--; steamP.emit(2.2 + rnd(-0.5, 0.5), 1.1, -7 + rnd(-0.4, 0.4), rnd(-0.3, 0.3), rnd(1, 1.8), rnd(-0.3, 0.3), rnd(0.9, 1.6), rnd(0.6, 1)); } }
+        // One CPU pool per system, mirrored into its dynamic vertex attributes this frame.
+        particleFields.forEach(p => p.update(dt, t, I));
+        // Dust only needs its clock advanced - the drift lives in the vertex shader.
+        dust.material.uniforms.uTime.value = t;
         glow.material.opacity = 0.55 * I * (0.85 + 0.15 * Math.sin(t * 13)); glow.scale.setScalar(0.6 + 0.4 * I);
+
+        // The raymarcher marches from the camera, expressed in the volume's local frame.
+        if (fireVol) {
+          const u = fireVol.material.uniforms;
+          u.uTime.value = t;
+          u.uI.value = I;
+          u.uCam.value.copy(cameraWorld).sub(fireOrigin);
+        }
 
         // Alarm strobe and evacuating workers
         if (alarmOn && active) {
           const on = Math.sin(t * 9) > 0.2; callLight.intensity = on ? 9 : 0; beaconMat.emissiveIntensity = on ? 3 : 0.3;
         } else { callLight.intensity = 0; beaconMat.emissiveIntensity = 0.2; }
         workers.forEach(w => {
+          if (!w.mixer) return;
           if (alarmOn) {
             const dx = w.dest.x - w.g.position.x, dz = w.dest.z - w.g.position.z, dist = Math.hypot(dx, dz);
-            if (dist > 0.2) {
-              w.g.position.x += dx / dist * 1.7 * dt; w.g.position.z += dz / dist * 1.7 * dt; w.g.rotation.y = Math.atan2(dx, dz);
-              const sw = Math.sin(t * 8 + w.i) * 0.6; w.L.rotation.x = sw; w.R.rotation.x = -sw;
-              w.torso.position.y = 1.15 + Math.abs(Math.sin(t * 8 + w.i)) * 0.03; return;
-            }
-          }
-          w.L.rotation.x *= 0.85; w.R.rotation.x *= 0.85; w.torso.scale.setScalar(1 + Math.sin(t * 1.6 + w.i) * 0.012);
+            if (dist > 0.25) {
+              w.g.position.x += dx / dist * 1.7 * dt; w.g.position.z += dz / dist * 1.7 * dt;
+              w.g.rotation.y = Math.atan2(dx, dz);
+              w.moving = true;
+            } else w.moving = false;
+          } else w.moving = false;
+          // Idle <-> walk is a weight crossfade on two always-playing actions.
+          w.blend += ((w.moving ? 1 : 0) - w.blend) * Math.min(1, dt * 6);
+          if (w.walk) w.walk.weight = w.blend;
+          if (w.idle) w.idle.weight = 1 - w.blend;
+          w.mixer.update(dt * (w.moving ? 1.25 : 1));
         });
 
-        // Camera and held-equipment realism: head bob, discharge shake, sway/recoil
-        const moving = active && ['KeyW', 'KeyA', 'KeyS', 'KeyD'].some(k => keys.has(k));
-        if (moving) { bob += dt * 9; camera.position.y = 1.7 + Math.sin(bob) * 0.04; }
-        else camera.position.y += (1.7 - camera.position.y) * 0.15;
-        camera.rotation.z = spraying ? Math.sin(t * 47) * 0.003 + Math.sin(t * 31) * 0.002 : 0;
-        if (pickedUp && active) {
+        // Camera and held-equipment realism: head bob, discharge shake, sway/recoil.
+        // In XR the headset drives the camera transform, so the on-screen rig is left alone.
+        const moving = active && (xrMoving || ['KeyW', 'KeyA', 'KeyS', 'KeyD'].some(k => keys.has(k)));
+        if (!renderer.xr.isPresenting) {
+          if (moving) { bob += dt * 9; camera.position.y = 1.7 + Math.sin(bob) * 0.04; }
+          else camera.position.y += (1.7 - camera.position.y) * 0.15;
+          camera.rotation.z = spraying ? Math.sin(t * 47) * 0.003 + Math.sin(t * 31) * 0.002 : 0;
+        }
+        if (pickedUp && active && !renderer.xr.isPresenting) {
           extinguisher.position.y += Math.sin(t * 1.6) * 0.006;
           if (spraying) { extinguisher.position.x += (Math.random() - 0.5) * 0.012; extinguisher.position.z += (Math.random() - 0.5) * 0.012; }
         }
@@ -1099,7 +2618,7 @@
 
         // Contextual prompts layered over the original guidance
         if (active && heat > 45) setPrompt('<b>Heat rising.</b> Step back to a safer distance (about 3–5 m).');
-        else if (active && !alarmOn && !pickedUp && camera.position.distanceTo(callPt) < 2.2) setPrompt('Press <span class="key">E</span> to activate the manual call point and raise the alarm.');
+        else if (active && !alarmOn && !pickedUp && cameraWorld.distanceTo(callPt) < 2.2) setPrompt('Press <span class="key">E</span> to activate the manual call point and raise the alarm.');
         else if (active && spraying && !isAimingAtFire()) setPrompt('Aim at the base of the fire for an effective discharge.');
       }
 
@@ -1113,33 +2632,44 @@
       }
 
       return {
-        update, efficiency, composer,
+        update, efficiency, composer, depthPass,
         penalty: () => (alarmOn ? 0 : 10) + (peakHeat > 70 ? 5 : 0),
-        resize() { composer.setPixelRatio(Math.min(devicePixelRatio, 1.7)); composer.setSize(innerWidth, innerHeight); },
+        resize() { if (composer) composer.setSize(innerWidth, innerHeight); resizeDepthRT(); updateParticleScale(); },
+        heatEffect,
         get alarmOn() { return alarmOn; },
-        get peakHeat() { return peakHeat; }
+        get peakHeat() { return peakHeat; },
+        get heat() { return heat; }
       };
     })();
 
-    function animate() {
-      requestAnimationFrame(animate);
+    // setAnimationLoop is required for WebXR; requestAnimationFrame does not fire in a session.
+    renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.04);
       const t = clock.elapsedTime;
+      camera.getWorldPosition(cameraWorld);
+      camera.getWorldDirection(cameraDir);
       updateMovement(dt);
+      updateXR(dt);
       updateExtinguisher();
       updateSpray(dt, t);
       animateEnvironment(t);
       updateGuidance();
       enhance.update(dt, t);
-      enhance.composer.render();
-    }
-    animate();
+      if (csm) csm.update();
+      // Soft particles fade against the scene depth, so the desktop tier renders a depth prepass
+      // first (and computes the frame's shadow maps in the same pass).
+      enhance.depthPass();
+      // The composer's fullscreen passes are desktop-only, and never used while presenting.
+      if (enhance.composer && !renderer.xr.isPresenting) enhance.composer.render(dt);
+      else renderer.render(scene, camera);
+    });
 
     window.addEventListener('resize', () => {
+      if (renderer.xr.isPresenting) return;
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+      renderer.setPixelRatio(tier.pixelRatio);
       enhance.resize();
     });
 
