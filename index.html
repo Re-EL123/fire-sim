@@ -86,17 +86,51 @@
     .toast { position: fixed; top: 82px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,16,22,.92); border: 1px solid var(--panel-border); border-radius: 11px; padding: 11px 15px; font-size: 12px; max-width: calc(100vw - 30px); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
     .result-score { font-size: 42px; letter-spacing: -.05em; font-weight: 900; color: var(--good); margin: 5px 0 10px; font-family: "JetBrains Mono", ui-monospace, monospace; }
     .result-score span { font-size: 15px; color: var(--muted); letter-spacing: 0; }
-    /* P.A.S.S. progress indicator: Pull / Aim / Squeeze / Sweep, each with its own state. */
-    .pass-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 14px; }
-    .pass-step { border: 1px solid var(--panel-border); border-radius: 9px; padding: 7px 3px 6px; text-align: center; background: rgba(255,255,255,.03); transition: border-color .2s ease, background .2s ease; }
-    .pass-step b { display: block; font-size: 11px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-    .pass-step i { display: block; margin-top: 4px; font-size: 8px; font-style: normal; letter-spacing: .08em; text-transform: uppercase; color: #79828a; }
+    /* P.A.S.S. progress indicator: Pull / Aim / Squeeze / Sweep, each with its own state.
+       The step name and its status are two clearly separated rows divided by a rule, so the
+       label can never read as one run-on word ("PullNot started"). The status row carries its
+       own coloured state dot so the state is legible without reading the words. */
+    .pass-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 14px; }
+    .pass-step { border: 1px solid var(--panel-border); border-radius: 10px; padding: 8px 4px 7px; text-align: center; background: rgba(255,255,255,.03); transition: border-color .2s ease, background .2s ease; }
+    .pass-step b { display: block; font-size: 11px; font-weight: 900; letter-spacing: .10em; text-transform: uppercase; color: var(--muted); }
+    .pass-step i { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--panel-border); font-size: 8px; font-style: normal; letter-spacing: .07em; text-transform: uppercase; color: #79828a; }
+    .pass-dot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; }
     .pass-step.inprogress { border-color: var(--accent); background: rgba(255,122,26,.15); }
     .pass-step.inprogress b { color: var(--accent); }
-    .pass-step.inprogress i { color: #ffcb9b; }
+    .pass-step.inprogress i { color: #ffcb9b; border-top-color: rgba(255,122,26,.45); }
     .pass-step.completed { border-color: rgba(95,212,138,.55); background: rgba(95,212,138,.13); }
     .pass-step.completed b { color: var(--good); }
-    .pass-step.completed i { color: #a5e5bf; }
+    .pass-step.completed i { color: #a5e5bf; border-top-color: rgba(95,212,138,.45); }
+    /* Explicit, ordered interaction sequence. Each row names one action and the single input that
+       performs it, and the row for the action expected right now is highlighted, so the user never
+       has to guess which use of a key comes next. */
+    .seq-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 4px; counter-reset: seq; }
+    .seq-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--panel-border); border-radius: 8px; background: rgba(255,255,255,.03); font-size: 11px; color: var(--muted); transition: border-color .2s ease, background .2s ease, color .2s ease; }
+    .seq-list li b { font-weight: 600; color: var(--text); }
+    .seq-key { flex: 0 0 auto; display: inline-grid; place-items: center; min-width: 24px; height: 20px; padding: 0 5px; border: 1px solid rgba(255,255,255,.22); border-bottom-width: 2px; border-radius: 5px; font-size: 9px; font-weight: 800; letter-spacing: .04em; color: var(--accent-2); }
+    .seq-list li.active { border-color: var(--accent); background: rgba(255,122,26,.14); color: var(--text); }
+    .seq-list li.active .seq-key { color: #1a0d02; background: var(--accent); border-color: var(--accent); }
+    .seq-list li.active b { color: var(--text); }
+    .seq-list li.done { border-color: rgba(95,212,138,.4); background: rgba(95,212,138,.1); }
+    .seq-list li.done .seq-key { color: var(--good); border-color: rgba(95,212,138,.5); }
+    .seq-list li.done b { color: var(--good); }
+    .seq-list li.done::after { content: "✓"; margin-left: auto; color: var(--good); font-weight: 800; }
+    .seq-list li.active::after { content: "now"; margin-left: auto; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+    /* Stage banner: a short, centred caption shown while the exercise moves between training
+       stages, so a change of objective is announced rather than silently swapped in the HUD. */
+    .stage-banner { position: fixed; top: 22%; left: 50%; transform: translate(-50%, -14px); z-index: 4; pointer-events: none; text-align: center; opacity: 0; transition: opacity .35s ease, transform .35s ease; }
+    .stage-banner.show { opacity: 1; transform: translate(-50%, 0); }
+    .stage-kicker { display: block; font-size: 10px; font-weight: 800; letter-spacing: .28em; text-transform: uppercase; color: var(--accent); }
+    .stage-title { display: block; margin-top: 7px; padding: 9px 18px; border: 1px solid var(--panel-border); border-radius: 12px; background: rgba(8,16,22,.86); backdrop-filter: blur(10px); font-size: clamp(17px, 3.2vw, 26px); font-weight: 900; letter-spacing: -.02em; }
+    /* Six pips track how far through the guided procedure the exercise is. */
+    .stage-pips { display: flex; justify-content: center; gap: 6px; margin-top: 11px; }
+    .stage-pips i { width: 24px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.18); transition: background .25s ease, box-shadow .25s ease; }
+    .stage-pips i.done { background: var(--good); }
+    .stage-pips i.on { background: var(--accent); box-shadow: 0 0 9px rgba(255,122,26,.75); }
+    /* Full-screen veil used to mask the jump when the scenario restarts. Sits above the HUD and
+       the modals but below the boot screen, so it never competes with initial load. */
+    .veil { position: fixed; inset: 0; z-index: 25; background: #05080b; opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+    .veil.on { opacity: 1; }
     /* Per-criterion assessment rows on the completion screen. */
     .criteria { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 6px; }
     .criteria li { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px 11px; border: 1px solid var(--panel-border); border-radius: 9px; background: rgba(255,255,255,.03); font-size: 11px; color: var(--muted); }
@@ -194,13 +228,26 @@
           <span id="objectiveText">Look around the site and locate the incident.</span>
         </div>
       </div>
-      <!-- P.A.S.S. progress indicator: Pull, Aim, Squeeze, Sweep -->
-      <div class="pass-strip" id="passStrip">
-        <div class="pass-step" data-step="pull"><b>Pull</b><i>Not started</i></div>
-        <div class="pass-step" data-step="aim"><b>Aim</b><i>Not started</i></div>
-        <div class="pass-step" data-step="squeeze"><b>Squeeze</b><i>Not started</i></div>
-        <div class="pass-step" data-step="sweep"><b>Sweep</b><i>Not started</i></div>
+      <!-- P.A.S.S. progress indicator: Pull, Aim, Squeeze, Sweep. Each step name sits above a
+           divider, with its own state dot and status word below it. -->
+      <div class="pass-strip" id="passStrip" role="list" aria-label="P.A.S.S. procedure progress">
+        <div class="pass-step" data-step="pull" role="listitem" aria-label="Pull: not started"><b>Pull</b><i><span class="pass-dot"></span><span class="pass-state">Not started</span></i></div>
+        <div class="pass-step" data-step="aim" role="listitem" aria-label="Aim: not started"><b>Aim</b><i><span class="pass-dot"></span><span class="pass-state">Not started</span></i></div>
+        <div class="pass-step" data-step="squeeze" role="listitem" aria-label="Squeeze: not started"><b>Squeeze</b><i><span class="pass-dot"></span><span class="pass-state">Not started</span></i></div>
+        <div class="pass-step" data-step="sweep" role="listitem" aria-label="Sweep: not started"><b>Sweep</b><i><span class="pass-dot"></span><span class="pass-state">Not started</span></i></div>
       </div>
+    </section>
+    <section class="card">
+      <div class="eyebrow">Interaction sequence</div>
+      <div class="muted" style="margin-top:7px">One action on each line, with the single key that performs it. The highlighted line is what to do next.</div>
+      <ol class="seq-list" id="seqList">
+        <li data-seq="alarm"><span class="seq-key">Q</span><b>Raise the alarm at the call point</b></li>
+        <li data-seq="collect"><span class="seq-key">E</span><b>Collect the extinguisher</b></li>
+        <li data-seq="pull"><span class="seq-key">F</span><b>Pull the safety pin</b></li>
+        <li data-seq="aim"><span class="seq-key">MOVE</span><b>Aim the nozzle at the base of the fire</b></li>
+        <li data-seq="squeeze"><span class="seq-key">LMB</span><b>Squeeze and hold to discharge</b></li>
+        <li data-seq="sweep"><span class="seq-key">MOVE</span><b>Sweep across the base until it is out</b></li>
+      </ol>
     </section>
     <section class="card">
       <div class="meter-head"><span>Procedure state</span><strong id="scenarioStateText">SCENARIO_READY</strong></div>
@@ -213,18 +260,22 @@
   </aside>
 
   <div class="crosshair hidden" id="crosshair"></div>
+  <div class="stage-banner" id="stageBanner"><span class="stage-kicker" id="stageKicker">Step 1</span><span class="stage-title" id="stageTitle">Orient yourself</span><div class="stage-pips" id="stagePips" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
   <div class="bottom-center hidden" id="bottomUI">
     <div class="prompt" id="prompt">Move around the site and inspect the scene.</div>
     <div class="controls">
       <div class="control-chip"><b>W A S D</b> Move</div>
-      <div class="control-chip"><b>Mouse</b> Look</div>
-      <div class="control-chip"><b>E</b> Interact / pick up</div>
-      <div class="control-chip"><b>Hold click</b> Discharge</div>
+      <div class="control-chip"><b>Mouse</b> Look / aim</div>
+      <div class="control-chip"><b>Q</b> Raise alarm</div>
+      <div class="control-chip"><b>E</b> Collect extinguisher</div>
+      <div class="control-chip"><b>F</b> Pull pin</div>
+      <div class="control-chip"><b>Hold LMB</b> Discharge</div>
       <div class="control-chip"><b>Esc</b> Pause</div>
     </div>
   </div>
 
   <div class="toast hidden" id="toast"></div>
+  <div class="veil" id="veil"></div>
 
   <div class="modal-wrap" id="welcomeModal">
     <div class="modal">
@@ -233,8 +284,9 @@
       <p class="muted" style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent-2)">Site briefing</p>
       <p>A fire has been detected on the construction site. Assess the situation and follow the guided extinguisher procedure.</p>
       <p style="border-left:3px solid var(--danger);padding-left:12px"><strong style="color:#f5f7f8">Before you fight any fire:</strong> raise the alarm, follow your site emergency procedure and evacuate if required. Only attempt to fight a small, contained fire if it is safe to do so and you have received the appropriate training. If in doubt, get out.</p>
-      <p><strong style="color:#f5f7f8">Desktop controls:</strong> WASD to move, mouse to look, E to collect the extinguisher, and hold the left mouse button to discharge after preparing it. Press E at the red call point first to raise the alarm, and keep a safe distance (3–5 m) from the heat. Press Esc at any time to pause.</p>
-      <p><strong style="color:#f5f7f8">Meta Quest 2 / Quest 3 (WebXR):</strong> open this page in Quest Browser and tap <em>Enter VR</em> (bottom-right). The left thumbstick moves, the right snap-turns, pressing a thumbstick teleports, the grip collects the extinguisher and pulls the safety pin, and the trigger discharges. Objectives and meters ride on your left wrist.</p>
+      <p><strong style="color:#f5f7f8">Desktop controls:</strong> WASD to move and the mouse to look and aim. Each action has its own key, in this order: <strong style="color:#f5f7f8">Q</strong> raises the alarm at the red call point, <strong style="color:#f5f7f8">E</strong> collects the extinguisher, <strong style="color:#f5f7f8">F</strong> pulls the safety pin, then <strong style="color:#f5f7f8">hold the left mouse button</strong> to discharge while aiming at the base of the fire. Keep a safe distance (3–5 m) from the heat. Press Esc at any time to pause. The highlighted line in the <em>Interaction sequence</em> panel always shows the next action.</p>
+      <p><strong style="color:#f5f7f8">Meta Quest 2 / Quest 3 (WebXR):</strong> open this page in Quest Browser and tap <em>Enter VR</em> (bottom-right). The left thumbstick moves, the right snap-turns and pressing a thumbstick teleports. One contextual control does each thing in turn: the <strong style="color:#f5f7f8">trigger</strong> raises the alarm at the red call point and later discharges, while the <strong style="color:#f5f7f8">grip</strong> collects the extinguisher and, pulled toward your chest, removes the safety pin. The wrist panel on your left hand shows the current objective, the P.A.S.S. checklist, the exact instruction for this step and the meters.</p>
+      <p class="xr-note" id="xrNote" style="border-left:3px solid var(--accent-2);padding-left:12px"><strong style="color:#f5f7f8">Headset compatibility is not yet field-verified.</strong> The VR paths are built to the WebXR standard for Quest 2 / Quest 3, and are kept in parity with the desktop controls, but this prototype has not been tested on physical headsets. Please run the guided demo on your own headset and confirm each interaction before relying on it for training.</p>
       <div class="modal-actions">
         <button class="primary" id="startBtn">Enter simulation →</button>
         <button class="secondary" id="guidedBtn">Start guided demo</button>
@@ -250,8 +302,10 @@
       <p>The scenario is frozen. Your recorded interactions are kept.</p>
       <div class="pause-list">
         <div><span>W / A / S / D</span><b>Move</b></div>
-        <div><span>Mouse</span><b>Look around</b></div>
-        <div><span>E</span><b>Collect extinguisher / pull pin / raise alarm</b></div>
+        <div><span>Mouse</span><b>Look around / aim</b></div>
+        <div><span>Q</span><b>Raise the alarm at the call point</b></div>
+        <div><span>E</span><b>Collect the extinguisher</b></div>
+        <div><span>F</span><b>Pull the safety pin</b></div>
         <div><span>Hold left mouse</span><b>Discharge when prepared</b></div>
         <div><span>R</span><b>Restart the exercise</b></div>
         <div><span>Esc</span><b>Resume</b></div>
@@ -319,6 +373,13 @@
       objectiveText: document.getElementById('objectiveText'),
       stepNum: document.getElementById('stepNum'),
       passStrip: document.getElementById('passStrip'),
+      seqList: document.getElementById('seqList'),
+      stageBanner: document.getElementById('stageBanner'),
+      stageKicker: document.getElementById('stageKicker'),
+      stageTitle: document.getElementById('stageTitle'),
+      stagePips: document.getElementById('stagePips'),
+      veil: document.getElementById('veil'),
+      xrNote: document.getElementById('xrNote'),
       scenarioStateText: document.getElementById('scenarioStateText'),
       fireStateText: document.getElementById('fireStateText'),
       intensityText: document.getElementById('intensityText'),
@@ -340,6 +401,8 @@
     };
     // One element handle per P.A.S.S. step, in procedure order.
     const passSteps = Array.from(ui.passStrip.querySelectorAll('.pass-step'));
+    // One element per row of the explicit interaction sequence.
+    const seqItems = Array.from(ui.seqList.querySelectorAll('li'));
 
     // ===================== QUALITY TIERS =====================
     // Every visual upgrade below is gated by this object. Quest 1 is the performance
@@ -1637,12 +1700,12 @@
 
     // Wrist-mounted objectives / meter panel — the HTML HUD cannot render inside VR.
     const xrPanelCanvas = document.createElement('canvas');
-    xrPanelCanvas.width = 512; xrPanelCanvas.height = 288;
+    xrPanelCanvas.width = 768; xrPanelCanvas.height = 432;
     const xrPanelCtx = xrPanelCanvas.getContext('2d');
     const xrPanelTex = new THREE.CanvasTexture(xrPanelCanvas);
     xrPanelTex.colorSpace = THREE.SRGBColorSpace;
     const xrPanel = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.2, 0.1125),
+      new THREE.PlaneGeometry(0.26, 0.14625),
       new THREE.MeshBasicMaterial({ map: xrPanelTex, transparent: true, depthTest: false, opacity: 0.95 })
     );
     xrPanel.renderOrder = 999;
@@ -1650,7 +1713,7 @@
     xrPanel.rotation.set(-Math.PI / 2, 0, 0);
     xrPanel.visible = false;
     xrControllers[0].add(xrPanel);
-    let xrMessage = 'Squeeze grip to collect the extinguisher.';
+    let xrMessage = 'Walk to the red manual call point and pull the trigger to raise the alarm.';
 
     function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
       const words = String(text).split(' ');
@@ -1667,29 +1730,63 @@
       return y + row * lineHeight;
     }
 
+    // The wrist panel mirrors the desktop HUD: the current step and objective, the contextual
+    // instruction, the P.A.S.S. checklist with live states, and the three meters.
+    const XR_PASS_DEFS = [['PULL', 'pull'], ['AIM', 'aim'], ['SQUEEZE', 'squeeze'], ['SWEEP', 'sweep']];
+    function xrPassChecklist() {
+      return XR_PASS_DEFS.map(([label, key]) => {
+        const done = key === 'pull' ? pinRemoved
+          : key === 'aim' ? assessment.aim
+          : key === 'squeeze' ? assessment.squeeze
+          : assessment.sweep;
+        const isNow = key === seqCurrent;
+        const state = done ? 'Done' : isNow ? 'Now' : 'Not started';
+        const color = done ? '#5fd48a' : isNow ? '#ffcb9b' : '#5b6670';
+        return { label, state, color };
+      });
+    }
+
     function drawXrPanel() {
       const c = xrPanelCtx, W = xrPanelCanvas.width, H = xrPanelCanvas.height;
       c.clearRect(0, 0, W, H);
-      c.fillStyle = 'rgba(8,16,22,.88)'; c.fillRect(0, 0, W, H);
-      c.strokeStyle = 'rgba(255,122,26,.75)'; c.lineWidth = 5; c.strokeRect(2.5, 2.5, W - 5, H - 5);
+      c.fillStyle = 'rgba(8,16,22,.9)'; c.fillRect(0, 0, W, H);
+      c.strokeStyle = 'rgba(255,122,26,.8)'; c.lineWidth = 6; c.strokeRect(3, 3, W - 6, H - 6);
       c.textBaseline = 'alphabetic';
-      c.fillStyle = '#ff7a1a'; c.font = 'bold 20px Inter, Arial, sans-serif';
-      c.fillText(`STEP ${ui.stepNum.textContent} · RE-EL`, 24, 38);
-      c.fillStyle = '#f5f8fa'; c.font = 'bold 30px Inter, Arial, sans-serif';
-      wrapCanvasText(c, ui.objectiveTitle.textContent, 24, 78, W - 48, 34, 2);
-      c.fillStyle = '#b7c5ce'; c.font = '20px Inter, Arial, sans-serif';
-      wrapCanvasText(c, xrMessage, 24, 152, W - 48, 24, 2);
+      // Step + brand.
+      c.fillStyle = '#ff7a1a'; c.font = 'bold 26px Inter, Arial, sans-serif';
+      c.fillText(`STEP ${ui.stepNum.textContent} OF 6 · RE-EL SAFETY`, 30, 46);
+      // Objective title.
+      c.fillStyle = '#f5f8fa'; c.font = 'bold 34px Inter, Arial, sans-serif';
+      wrapCanvasText(c, ui.objectiveTitle.textContent, 30, 92, W - 60, 38, 1);
+      // Contextual instruction for this step.
+      c.fillStyle = '#b7c5ce'; c.font = '23px Inter, Arial, sans-serif';
+      wrapCanvasText(c, xrMessage, 30, 130, W - 60, 29, 2);
+      // P.A.S.S. checklist with a state dot and status word per step.
+      const colW = (W - 60) / 4;
+      xrPassChecklist().forEach((s, i) => {
+        const x = 30 + i * colW, y = 226;
+        c.fillStyle = s.color;
+        c.beginPath(); c.arc(x + 9, y - 9, 9, 0, 6.2832); c.fill();
+        c.font = 'bold 24px Inter, Arial, sans-serif';
+        c.fillText(s.label, x + 28, y);
+        c.fillStyle = s.color; c.font = '17px Inter, Arial, sans-serif';
+        c.fillText(s.state, x + 28, y + 26);
+      });
+      c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(30, 272); c.lineTo(W - 30, 272); c.stroke();
+      // Meters.
       const bars = [
         ['FIRE', fireIntensity, '#ff5a45'],
         ['SUPPLY', supply, '#5fd48a'],
         ['HEAT', enhance.heat, '#ffca70']
       ];
+      const trackW = W - 190;
       bars.forEach(([label, value, color], i) => {
-        const y = 214 + i * 22, w = Math.max(0, Math.min(100, value)) / 100 * 430;
-        c.fillStyle = '#b7c5ce'; c.font = 'bold 16px Inter, Arial, sans-serif';
-        c.fillText(label, 24, y + 10);
-        c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(78, y, 430, 10);
-        c.fillStyle = color; c.fillRect(78, y, w, 10);
+        const y = 302 + i * 34, w = Math.max(0, Math.min(100, value)) / 100 * trackW;
+        c.fillStyle = '#b7c5ce'; c.font = 'bold 20px Inter, Arial, sans-serif';
+        c.fillText(label, 30, y + 15);
+        c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(140, y, trackW, 15);
+        c.fillStyle = color; c.fillRect(140, y, w, 15);
       });
       xrPanelTex.needsUpdate = true;
     }
@@ -1700,27 +1797,46 @@
       if (actuator && typeof actuator.pulse === 'function') actuator.pulse(intensity, duration);
     }
 
-    // Grip button: pick the extinguisher up, then the same grip is the pin "pull" gesture.
+    // Grip button: pick the extinguisher up, then the same grip arms the pin "pull" gesture.
+    // The wrist panel always states which of the two the grip will do next.
     function xrGripDown(controller) {
       if (!active) { startSimulation(guided); return; }
+      if (!enhance.alarmOn) {
+        xrMessage = 'Raise the alarm first: point at the red call point and pull the trigger.';
+        return;
+      }
       if (!pickedUp) {
         collectExtinguisher();
         if (pickedUp) xrHoldExtinguisher(controller);
+        else { xrMessage = 'Move closer to the extinguisher station, then squeeze the grip.'; xrHaptic(controller, 0.25, 40); }
         return;
       }
       if (!pinRemoved) {
-        // Arm the pull gesture: pulling the controller toward the head removes the pin.
+        // Arm the pull gesture on the hand that is holding the extinguisher.
+        if (heldController && controller !== heldController) {
+          xrMessage = 'Use the hand holding the extinguisher to pull the pin.';
+          xrHaptic(controller, 0.25, 40);
+          return;
+        }
         controller.userData.pinPullFrom = controller.position.distanceTo(camera.position);
-        xrMessage = 'Pull the controller toward you to remove the pin.';
+        xrMessage = 'Now pull the controller toward your chest to remove the pin.';
+        xrHaptic(controller, 0.35, 50);
       } else {
-        beginSpray();
+        xrMessage = 'Pin removed. Pull the trigger to discharge.';
       }
     }
 
-    // Trigger: discharge.
+    // Trigger: the single contextual "primary action". It raises the alarm at the call point, and
+    // once the pin is out it discharges. The prompt on the wrist panel says which applies now.
     function xrTriggerDown() {
       if (!active) { startSimulation(guided); return; }
-      if (!pickedUp || !pinRemoved) return;
+      if (!enhance.alarmOn) {
+        if (enhance.tryRaiseAlarm()) xrMessage = 'Alarm raised. Walk to the extinguisher station and squeeze the grip.';
+        else xrMessage = 'Walk to the red manual call point, then pull the trigger to raise the alarm.';
+        return;
+      }
+      if (!pickedUp) { xrMessage = 'Walk to the extinguisher station and squeeze the grip to collect it.'; return; }
+      if (!pinRemoved) { xrMessage = 'Squeeze the grip, then pull the controller to your chest to remove the pin.'; return; }
       beginSpray();
     }
     function xrTriggerUp() { if (spraying) endSpray(); }
@@ -1733,7 +1849,7 @@
       extinguisher.rotation.set(0, Math.PI / 2, 0.15);
       extinguisher.scale.setScalar(0.85);
       controller.userData.ray.visible = false;
-      xrMessage = 'Squeeze grip again to pull the pin, then pull the trigger.';
+      xrMessage = 'Extinguisher in hand. Squeeze the grip, then pull the controller to your chest to remove the pin.';
       xrHaptic(controller, 0.5, 60);
     }
 
@@ -1790,13 +1906,13 @@
 
       for (const controller of xrControllers) {
         const gp = controller.userData.gamepad;
-        // Pin pull gesture: the controller got measurably closer to the head.
-        if (controller.userData.pinPullFrom && pickedUp && !pinRemoved) {
+        // Pin pull gesture: the holding controller got measurably closer to the head.
+        if (controller === heldController && controller.userData.pinPullFrom && pickedUp && !pinRemoved) {
           if (controller.position.distanceTo(camera.position) < controller.userData.pinPullFrom - 0.1) {
             controller.userData.pinPullFrom = 0;
             removePin();
             xrHaptic(controller, 0.9, 110);
-            xrMessage = 'Pin removed. Aim the nozzle at the base of the fire.';
+            xrMessage = 'Pin removed. Pull the trigger to discharge, then sweep the stream across the base.';
           }
         }
         if (!gp || !gp.buttons || gp.buttons.length < 4 || !tier.teleport) continue;
@@ -1828,7 +1944,7 @@
       if (!active) startSimulation(guided);
       xrPanel.visible = true;
       drawXrPanel();
-      showToast('VR ready. Thumbsticks move and snap-turn, stick click teleports, grip picks up / pulls the pin, trigger discharges.');
+      showToast('VR ready. Left stick moves, right stick snap-turns, stick click teleports. Trigger raises the alarm at the call point, grip collects and pulls the pin, trigger then discharges.');
     });
     renderer.xr.addEventListener('sessionend', () => {
       xrPanel.visible = false;
@@ -1883,20 +1999,73 @@
       ui.supplyBar.style.width = `${Math.max(0, supply)}%`;
       updateFireState();
     }
-    // P.A.S.S. progress indicator: one element per step, each in one of three states.
+    // P.A.S.S. progress indicator: one element per step, each in one of three states. The step
+    // name (b), the state word (i > .pass-state) and the state dot are updated together, and the
+    // row's aria-label is rewritten so assistive technology reads "Pull: completed" rather than
+    // running the two labels together.
     const PASS_INDEX = { pull: 0, aim: 1, squeeze: 2, sweep: 3 };
+    const PASS_STATE_TEXT = { completed: 'Completed', inprogress: 'In progress', pending: 'Not started' };
     function setPassStep(step, state) {
       const el = passSteps[PASS_INDEX[step]];
       if (!el) return;
-      el.classList.toggle('inprogress', state === 'inprogress');
-      el.classList.toggle('completed', state === 'completed');
-      el.querySelector('i').textContent = state === 'completed' ? 'Completed' : state === 'inprogress' ? 'In progress' : 'Not started';
+      const kind = state === 'completed' ? 'completed' : state === 'inprogress' ? 'inprogress' : 'pending';
+      el.classList.toggle('inprogress', kind === 'inprogress');
+      el.classList.toggle('completed', kind === 'completed');
+      el.querySelector('.pass-state').textContent = PASS_STATE_TEXT[kind];
+      el.setAttribute('aria-label', `${el.querySelector('b').textContent}: ${PASS_STATE_TEXT[kind]}`);
     }
     function resetPassStrip() {
-      passSteps.forEach(el => {
-        el.classList.remove('inprogress', 'completed');
-        el.querySelector('i').textContent = 'Not started';
+      passSteps.forEach(el => setPassStep(el.dataset.step, 'pending'));
+    }
+    // Interaction sequence panel: the ordered list of actions and their keys. The row for the
+    // action expected now is highlighted, and every completed action is ticked. The panel is
+    // driven from the recorded state, so it can never point at an action that is already done.
+    let seqCurrent = 'alarm';
+    function sequenceDone() {
+      return {
+        alarm: !!enhance.alarmOn,
+        collect: pickedUp,
+        pull: pinRemoved,
+        aim: assessment.aim,
+        squeeze: assessment.squeeze,
+        sweep: assessment.sweep
+      };
+    }
+    function refreshSequence() {
+      const done = sequenceDone();
+      seqItems.forEach(li => {
+        const key = li.dataset.seq;
+        li.classList.toggle('done', !!done[key]);
+        li.classList.toggle('active', key === seqCurrent && !done[key]);
+        li.setAttribute('aria-current', key === seqCurrent ? 'step' : 'false');
       });
+    }
+    function setSequence(step) { seqCurrent = step; refreshSequence(); }
+    function resetSequence() { seqCurrent = 'alarm'; refreshSequence(); }
+    // Stage banner: a short caption announcing a change of training stage. It fades in, holds for a
+    // moment and fades back out, so the objective change is noticed without blocking the view. The
+    // pip row under the caption shows how far through the six guided stages the exercise is.
+    let stageTimer = 0;
+    function showStage(step, title) {
+      if (!ui.stageBanner) return;
+      ui.stageKicker.textContent = `Step ${step} of 6`;
+      ui.stageTitle.textContent = title;
+      if (ui.stagePips) {
+        Array.from(ui.stagePips.children).forEach((pip, i) => {
+          pip.classList.toggle('done', i + 1 < step);
+          pip.classList.toggle('on', i + 1 === step);
+        });
+      }
+      ui.stageBanner.classList.add('show');
+      clearTimeout(stageTimer);
+      stageTimer = setTimeout(() => ui.stageBanner.classList.remove('show'), 1900);
+    }
+    // Masks the jump when the scenario restarts: the veil covers the frame the world is re-seeded
+    // on, then lifts, so the reset reads as a transition instead of a hard cut.
+    function veilTransition() {
+      if (!ui.veil) return;
+      ui.veil.classList.add('on');
+      setTimeout(() => ui.veil.classList.remove('on'), 260);
     }
     function showTraining() {
       ui.hud.classList.remove('hidden');
@@ -1934,6 +2103,7 @@
       showTraining();
       setScenarioState(SCENARIO.SCENARIO_READY);
       resetPassStrip();
+      resetSequence();
       resetAssessment();
       lastSweepPoint = null;
       pickedUp = false; pinRemoved = false; spraying = false;
@@ -1941,7 +2111,7 @@
       extinguisher.position.set(-1.8, 0, -3.2);
       extinguisher.rotation.set(0,0,0);
       extinguisher.visible = true;
-      pin.visible = true;
+      resetPin();
       targetRing.visible = true;
       fireBase.visible = true;
       fireLight.intensity = 5;
@@ -1949,7 +2119,7 @@
       flames.forEach(f => f.mesh.visible = !tier.volumetric);
       sprayParticles.forEach(p => p.visible = false);
       xrDetachExtinguisher();
-      xrMessage = 'Squeeze grip to collect the extinguisher.';
+      xrMessage = 'Walk to the red manual call point and pull the trigger to raise the alarm.';
       // Spawn the *dolly* at the site entrance and leave the camera centred on it, so the collision
       // footprint and the viewpoint are the same point in world space.
       dolly.position.set(0, 0, 8.5);
@@ -1959,14 +2129,17 @@
       camera.rotation.set(0,0,0);
       setStatus('Incident active');
       setObjective(1, 'Orient yourself', 'Look around the construction site and locate the simulated fire.');
-      setPrompt('Explore the site. Approach the extinguisher station when you are ready.');
+      setPrompt('Step 1 of 6 — look around the site. Find the red manual call point and the extinguisher station.');
       updateMeters();
       setScenarioState(SCENARIO.FIND_EXTINGUISHER);
+      showStage(1, 'Orient yourself and raise the alarm');
     }
 
     function resetScenario() {
       retries++;
       if (document.pointerLockElement) document.exitPointerLock();
+      // Cover the frame the world is re-seeded on, so the restart reads as a transition.
+      veilTransition();
       startSimulation(guided);
       showToast('Scenario reset. Start a new attempt.');
     }
@@ -2058,36 +2231,78 @@
         : '<b>Nothing outstanding.</b> Every criterion was met. This remains a prototype exercise, not a validated competency assessment.';
 
       setFireState(success ? FIRE.EXTINGUISHED : FIRE.FAILED);
-      ui.result.classList.remove('hidden');
+      // Close the exercise out through the veil, so the debrief arrives as the end of a stage rather
+      // than a panel appearing over a still-running scene.
+      if (ui.veil) {
+        ui.veil.classList.add('on');
+        setTimeout(() => { ui.result.classList.remove('hidden'); ui.veil.classList.remove('on'); }, 300);
+      } else {
+        ui.result.classList.remove('hidden');
+      }
       if (document.pointerLockElement) document.exitPointerLock();
     }
 
+    // Pin removal. The whole pin assembly is animated off the valve before it is hidden, so the
+    // "P" of P.A.S.S. reads as an action rather than the ring simply blinking out of existence.
     function removePin() {
       if (!pickedUp) {
         mistakes++;
-        showToast('Collect the extinguisher first.');
+        showToast('Collect the extinguisher with E first.');
         return;
       }
       if (pinRemoved) return;
       pinRemoved = true;
-      pin.visible = false;
       assessment.pull = true;
+      animatePinPull();
       setPassStep('pull', 'completed');
       setPassStep('aim', 'inprogress');
       setObjective(3, 'Aim at the target', 'Direct the nozzle toward the simulated fire before discharging.');
-      setPrompt('Pin removed. Face the fire and place the crosshair on the target area.');
-      showToast('Pin interaction completed.');
+      setPrompt('Pin removed. Now aim: place the crosshair on the base of the fire, then hold the left mouse button.');
+      showToast('Safety pin pulled.');
       setScenarioState(SCENARIO.AIM_AT_FIRE);
+      setSequence('aim');
+      showStage(4, 'Aim at the base');
+    }
+    // Tween the pin off the valve and let it drop, then hide it. Runs on the paint frame so the tiny
+    // animation costs nothing on the headset tiers.
+    let pinPullT = -1;
+    const pinRestPos = pin.position.clone();
+    const pinRestRot = pin.rotation.clone();
+    function animatePinPull() {
+      pinPullT = 0;
+    }
+    function resetPin() {
+      pinPullT = -1;
+      pin.visible = true;
+      pin.position.copy(pinRestPos);
+      pin.rotation.copy(pinRestRot);
+    }
+    function updatePinAnimation(dt) {
+      if (pinPullT < 0) return;
+      pinPullT += dt;
+      const k = Math.min(1, pinPullT / 0.45);
+      const ease = 1 - Math.pow(1 - k, 3);
+      // Slide out of the valve toward the front of the unit, then fall away and let go.
+      const drop = Math.max(0, (k - 0.5) / 0.5) ** 2;
+      pin.position.x = pinRestPos.x - 0.12 * ease;
+      pin.position.y = pinRestPos.y - 0.42 * drop;
+      pin.position.z = pinRestPos.z + 0.26 * ease;
+      pin.rotation.z = -1.7 * ease;
+      pin.rotation.y = 0.5 * ease;
+      if (k >= 1) {
+        pin.visible = false;
+        pinPullT = -1;
+      }
     }
 
     function collectExtinguisher() {
       if (pickedUp) {
-        if (!pinRemoved) removePin();
+        showToast(pinRemoved ? 'The extinguisher is prepared. Aim at the fire and hold the left mouse button.' : 'The extinguisher is collected. Press F to pull the safety pin.');
         return;
       }
       const distance = cameraWorld.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
       if (distance > 4.1) {
-        showToast('Move closer to the extinguisher station.');
+        showToast('Move closer to the extinguisher station to collect it.');
         return;
       }
       pickedUp = true;
@@ -2097,9 +2312,11 @@
       assessment.retrieval = true;
       setPassStep('pull', 'inprogress');
       setObjective(2, 'Prepare the extinguisher', 'Collect the extinguisher and complete the guided equipment interaction.');
-      setPrompt('Extinguisher collected. Press <span class="key">E</span> again to simulate removing the safety pin.');
+      setPrompt('Extinguisher collected. Press <span class="key">F</span> to pull the safety pin.');
       showToast('Extinguisher collected.');
       setScenarioState(SCENARIO.PULL_PIN);
+      setSequence('pull');
+      showStage(3, 'Pull the safety pin');
     }
 
     function fireDistance() {
@@ -2138,14 +2355,16 @@
       setPassStep('aim', 'completed');
       setPassStep('squeeze', 'inprogress');
       setObjective(4, 'Apply the simulated discharge', 'Keep the nozzle directed at the target area while the effect is active.');
-      setPrompt('Discharging. Keep aiming at the target to reduce simulated fire intensity.');
+      setPrompt('Discharging. Keep the crosshair on the base of the fire and move it side to side to sweep.');
       setScenarioState(SCENARIO.SQUEEZE_HANDLE);
+      setSequence('sweep');
+      showStage(5, 'Squeeze and sweep');
     }
     function endSpray() {
       spraying = false;
       sprayParticles.forEach(p => p.visible = false);
       if (active && fireIntensity > 0 && pinRemoved) {
-        setPrompt('Adjust your aim toward the fire and hold the left mouse button to continue.');
+        setPrompt('Release recorded. Aim at the base of the fire and hold the left mouse button to keep discharging.');
         if (scenarioState === SCENARIO.SQUEEZE_HANDLE || scenarioState === SCENARIO.SWEEP_FIRE) setScenarioState(SCENARIO.AIM_AT_FIRE);
       }
     }
@@ -2178,11 +2397,14 @@
       if (!active || paused) return;
       keys.add(e.code);
       if (e.repeat) return;
-      if (e.code === 'KeyE') {
-        if (!pickedUp) collectExtinguisher();
-        else if (!pinRemoved) removePin();
-        else showToast('Aim at the fire and hold the left mouse button to discharge.');
+      // One key per action, so the sequence is never ambiguous: Q raises the alarm at the call
+      // point, E collects the extinguisher, F pulls the safety pin. Discharge stays on the mouse
+      // (or the VR trigger) because it is a held action rather than a single press.
+      if (e.code === 'KeyQ') {
+        if (!enhance.tryRaiseAlarm()) showToast('Move to the red manual call point, then press Q to raise the alarm.');
       }
+      if (e.code === 'KeyE') collectExtinguisher();
+      if (e.code === 'KeyF') removePin();
       if (e.code === 'KeyR') resetScenario();
     }
     function onKeyUp(e) { keys.delete(e.code); }
@@ -2248,16 +2470,26 @@
       }
     }
 
-    function updateExtinguisher() {
+    // Hand held extinguisher: the unit is carried in front of the camera and picks up the walk
+    // cyclically, so it swings and settles as the player moves instead of tracking the view rigidly.
+    let holdSway = 0;
+    function updateExtinguisher(dt = 0.016) {
       if (!pickedUp || !active) return;
       if (renderer.xr.isPresenting) return;  // parented to the controller instead
-      // A lightweight desktop proxy for holding the extinguisher in front of the camera.
+      const walking = keys.has('KeyW') || keys.has('KeyA') || keys.has('KeyS') || keys.has('KeyD');
+      // Cadence is faster under load than at rest, so the bob tracks the walk rather than a metronome.
+      holdSway += (walking ? 7.2 : 1.5) * dt;
+      const amount = walking ? 1 : 0.34;
+      const swayX = Math.sin(holdSway) * 0.016 * amount;
+      const swayY = Math.cos(holdSway * 2) * 0.012 * amount;
+      // A little kick back into the body while the lever is held down.
+      const recoil = spraying ? 0.022 + Math.sin(holdSway * 9) * 0.004 : 0;
       const right = new THREE.Vector3().crossVectors(cameraDir, worldUp).normalize();
-      extinguisher.position.copy(cameraWorld).addScaledVector(cameraDir, 0.8).addScaledVector(right, 0.38);
-      extinguisher.position.y -= 0.52;
+      extinguisher.position.copy(cameraWorld).addScaledVector(cameraDir, 0.8 - recoil).addScaledVector(right, 0.38 + swayX);
+      extinguisher.position.y -= 0.52 + swayY;
       extinguisher.quaternion.copy(camera.quaternion);
-      extinguisher.rotateX(-0.18);
-      extinguisher.rotateZ(-0.12);
+      extinguisher.rotateX(-0.18 + (spraying ? 0.07 : 0));
+      extinguisher.rotateZ(-0.12 + swayX * 2.2);
       extinguisher.visible = true;
     }
 
@@ -2271,13 +2503,20 @@
       const firePos = new THREE.Vector3(2.2, 1.1, -7);
       const direction = firePos.sub(nozzleWorld).normalize();
       sprayParticles.forEach((p, i) => {
-        const spread = 0.16 + (i % 5) * 0.025;
-        const travel = ((t * 4 + i * 0.17) % 1);
-        p.position.copy(nozzleWorld).addScaledVector(direction, travel * 5.8);
-        p.position.x += Math.sin(t * 8 + i) * spread * travel;
-        p.position.y += Math.cos(t * 7 + i * 1.7) * spread * travel;
-        p.position.z += Math.sin(t * 6 + i * 0.7) * spread * travel;
-        p.visible = true;
+        const spread = 0.10 + (i % 6) * 0.022;
+        const travel = ((t * 3.4 + i * 0.137) % 1);
+        const dist = travel * 5.8;
+        // A projected powder jet: the cone widens with distance, the puffs grow as they slow, and
+        // they droop slightly under gravity before fading out at the end of their reach.
+        const widen = 0.35 + travel * 1.65;
+        p.position.copy(nozzleWorld).addScaledVector(direction, dist);
+        p.position.x += Math.sin(t * 8 + i) * spread * widen;
+        p.position.y += Math.cos(t * 7 + i * 1.7) * spread * widen - travel * travel * 0.30;
+        p.position.z += Math.sin(t * 6 + i * 0.7) * spread * widen;
+        const fade = Math.min(1, travel * 6) * (1 - travel * 0.92);
+        p.scale.setScalar(0.5 + travel * 1.4);
+        p.material.opacity = 0.10 + 0.66 * fade;
+        p.visible = fade > 0.02;
       });
       fireIntensity = Math.max(0, fireIntensity - dt * 17 * enhance.efficiency());
       supply = Math.max(0, supply - dt * 13);
@@ -2286,7 +2525,7 @@
       // lateral distance the aim point travels across it. Both feed the weighted assessment, and
       // the sweep step only completes once the nozzle has genuinely crossed the base.
       if (isAimingAtFire()) {
-        assessment.aim = true;
+        if (!assessment.aim) { assessment.aim = true; refreshSequence(); }
         assessment.aimSeconds += dt;
         assessment.dischargeSeconds += dt;
         const dir = getAimDirection();
@@ -2298,7 +2537,13 @@
           lastSweepPoint = hit;
         }
         if (assessment.sweepTravel >= 2.4) {
-          if (!assessment.sweep) { assessment.sweep = true; showToast('Sweep coverage recorded.'); }
+          if (!assessment.sweep) {
+            assessment.sweep = true;
+            showToast('Sweep coverage recorded.');
+            setSequence('sweep');
+            showStage(6, 'Sweep until the fire is out');
+            refreshSequence();
+          }
           setPassStep('sweep', 'completed');
           setPassStep('squeeze', 'completed');
           if (scenarioState === SCENARIO.SQUEEZE_HANDLE) setScenarioState(SCENARIO.SWEEP_FIRE);
@@ -2350,25 +2595,41 @@
     function updateGuidance() {
       if (!active) return;
       const distExt = cameraWorld.distanceTo(new THREE.Vector3(-1.8, 0.8, -3.2));
+      const canAlarm = !enhance.alarmOn && cameraWorld.distanceTo(new THREE.Vector3(-0.55, 1.3, -3.4)) < 2.2;
       const xr = renderer.xr.isPresenting;
       if (!pickedUp) {
         const close = distExt < 4.1;
         // FIND_EXTINGUISHER becomes COLLECT_EXTINGUISHER once the user is inside interaction range.
         const want = close ? SCENARIO.COLLECT_EXTINGUISHER : SCENARIO.FIND_EXTINGUISHER;
         if (scenarioState !== want && (scenarioState === SCENARIO.FIND_EXTINGUISHER || scenarioState === SCENARIO.COLLECT_EXTINGUISHER)) setScenarioState(want);
-        setPrompt(close
-          ? 'Press <span class="key">E</span> to collect the extinguisher.'
-          : 'Locate the extinguisher station. Move with <span class="key">W A S D</span> and look with your mouse.');
-        if (xr) xrMessage = close ? 'Squeeze the grip to collect the extinguisher.' : 'Walk to the extinguisher station on the left.';
+        if (!enhance.alarmOn) {
+          // Step 1 is the site procedure: raise the alarm before touching any equipment.
+          if (canAlarm) {
+            setPrompt('Press <span class="key">Q</span> to raise the alarm at the manual call point.');
+            if (xr) xrMessage = 'Pull the trigger to raise the alarm at the red call point.';
+          } else {
+            setPrompt('Step 1 of 6 — walk to the <strong>red manual call point</strong> and press <span class="key">Q</span> to raise the alarm.');
+            if (xr) xrMessage = 'Walk to the red manual call point and pull the trigger to raise the alarm.';
+          }
+        } else if (close) {
+          setPrompt('Press <span class="key">E</span> to collect the extinguisher.');
+          if (xr) xrMessage = 'Squeeze the grip to collect the extinguisher.';
+        } else {
+          setPrompt('Step 2 of 6 — walk to the extinguisher station on the left and press <span class="key">E</span> to collect it.');
+          if (xr) xrMessage = 'Walk to the extinguisher station on the left, then squeeze the grip.';
+        }
       } else if (!pinRemoved) {
-        setPrompt('Press <span class="key">E</span> to simulate the pin interaction.');
-        if (xr) xrMessage = 'Squeeze the grip and pull the controller in to remove the pin.';
-      } else if (fireIntensity > 0 && !spraying) {
+        setPrompt('Press <span class="key">F</span> to pull the safety pin.');
+        if (xr) xrMessage = 'Squeeze the grip, then pull the controller to your chest to remove the pin.';
+      } else if (spraying) {
+        setPrompt('Discharging. Sweep slowly across the base of the fire — do not pulse the lever.');
+        if (xr) xrMessage = 'Sweep the stream slowly side to side across the base of the fire.';
+      } else if (fireIntensity > 0) {
         const aligned = isAimingAtFire();
         if (aligned && scenarioState === SCENARIO.AIM_AT_FIRE) setPassStep('aim', 'inprogress');
         setPrompt(aligned
-          ? 'Target aligned. Hold the left mouse button to simulate discharge.'
-          : 'Face the fire and align the crosshair with the target area.');
+          ? 'Target aligned. Hold the left mouse button to discharge, then sweep side to side.'
+          : 'Aim: face the fire and place the crosshair on the base of the flame.');
         if (xr) xrMessage = aligned ? 'Aligned. Pull the trigger to discharge.' : 'Point the nozzle at the base of the fire.';
       }
     }
@@ -2507,6 +2768,18 @@
       const assembly = signMesh('ASSEMBLY\nPOINT', '#1f7a4d', '#ffffff', 1.3, 0.9); assembly.position.set(0, 2.1, 0);
       const apost = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.1, 8), materials.steel); apost.position.y = 1.05;
       const ag = new THREE.Group(); ag.add(assembly, apost); add(ag, 9.5, 0, 9.6, Math.PI);
+
+      // --- Fire-safety signage: a fire point marker over the extinguisher station and a hot-work
+      // notice beside the burning crate. Both are printed boards on posts, which is what actually
+      // sits on a live site and gives the incident a readable cause instead of an unexplained fire.
+      const firePoint = signMesh('FIRE\nPOINT', '#d32f2f', '#ffffff', 0.62, 0.46);
+      firePoint.position.set(-1.8, 2.28, -3.44);
+      scene.add(firePoint);
+      const hotWork = signMesh('HOT WORK\nIN PROGRESS', '#f5c518', '#1c1c1c', 0.9, 0.62);
+      hotWork.position.set(0.1, 1.42, -5.35);
+      const hwPost = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.5, 0.07), materials.steel);
+      hwPost.position.set(0.1, 0.75, -5.42);
+      scene.add(hotWork, hwPost);
 
       // --- Manual call point + beacon (optional alarm step)
       const callPt = new THREE.Vector3(-0.55, 1.3, -3.4);
@@ -3469,11 +3742,11 @@
               float t1 = min( min( hi.x, hi.y ), hi.z );
               t0 = max( t0, 0.0 );
               if ( t1 <= t0 ) discard;                       // ray misses the volume entirely
-              float stride = ( t1 - t0 ) / 40.0;
+              float stride = ( t1 - t0 ) / 48.0;
               vec3 p = uCam + rd * ( t0 + stride * 0.5 );
               vec3 acc = vec3( 0.0 );
               float dens = 0.0;
-              for ( int i = 0; i < 40; i ++ ) {
+              for ( int i = 0; i < 48; i ++ ) {
                 vec3 q = p / uHalf;                            // volume space, -1..1 on each axis
                 float h = clamp( ( q.y + 1.0 ) * 0.5, 0.0, 1.0 );   // 0 at the fuel, 1 at the tip
                 // A hot, wide base that narrows and breaks up as it climbs. Tapering on h (rather
@@ -3485,6 +3758,9 @@
                 // Sharpen the noise into licking tongues: a raw fbm averages out to a soft cone,
                 // while a higher power keeps the dense filaments separated by visible gaps.
                 turb = pow( turb, 1.6 );
+                // A second, faster octave tears the large filaments apart so the tongues flicker
+                // and shed instead of reading as one smooth shape.
+                turb *= 0.78 + 0.42 * noise( vec3( q.x * 6.5, q.y * 6.0 - uTime * 6.2, q.z * 6.5 ) );
                 float d = taper * ( 0.12 + 1.25 * turb ) * smoothstep( -0.15, 0.7, radial );
                 d *= 0.20 + 0.80 * uI;
                 // Deep red at the tips, saturated yellow where the fuel is still burning hard.
@@ -3640,13 +3916,21 @@
 
       function raiseAlarm() {
         alarmOn = true; alarmText.textContent = 'ACTIVE'; alarmText.style.color = 'var(--danger)';
-        showToast('Alarm raised. Site is evacuating to the assembly point.'); playBeep(520, 0.2);
+        showToast('Alarm raised. The crew is evacuating to the assembly point.');
+        playBeep(520, 0.2);
+        setSequence('collect');
+        showStage(2, 'Collect the extinguisher');
+        refreshSequence();
       }
-      window.addEventListener('keydown', e => {
-        if (e.code === 'KeyE' && active && !e.repeat && !alarmOn && !pickedUp && cameraWorld.distanceTo(callPt) < 2.2) {
-          raiseAlarm(); e.stopImmediatePropagation();
-        }
-      }, true);
+      // The alarm is its own action on its own key (Q), and only fires when the player is actually
+      // standing at the call point. Returning false lets the caller explain what is missing instead
+      // of silently doing nothing.
+      function tryRaiseAlarm() {
+        if (!active || alarmOn) return false;
+        if (cameraWorld.distanceTo(callPt) > 2.2) return false;
+        raiseAlarm();
+        return true;
+      }
 
       function efficiency() {
         const d = fireDistance();
@@ -3764,9 +4048,11 @@
         acc.f += 120 * ps * I * dt; while (acc.f >= 1) { acc.f--; fireP.emit(2.2 + rnd(-0.6, 0.6), 0.95, -7 + rnd(-0.45, 0.45), rnd(-0.18, 0.18), rnd(1.5, 3.0), rnd(-0.18, 0.18), rnd(0.7, 1.3), rnd(0.9, 1.6)); }
         acc.s += 3 * ps * I * dt; while (acc.s >= 1) {
           acc.s--;
-          const sx = 2.2 + rnd(-0.35, 0.35), sz = -7 + rnd(-0.28, 0.28);
-          smokeP.emit(sx, 2.95, sz, rnd(0.10, 0.26), rnd(0.8, 1.3), rnd(-0.07, 0.07), rnd(2.6, 4.2), rnd(0.7, 1.1));
-          smokeGlowP.emit(sx, 2.45, sz, rnd(0.08, 0.22), rnd(0.7, 1.1), rnd(-0.07, 0.07), rnd(2.0, 3.2), rnd(0.6, 1.0));
+          const sx = 2.2 + rnd(-0.30, 0.30), sz = -7 + rnd(-0.24, 0.24);
+          // The wisp is emitted just above the flame and lives long enough to climb a few metres,
+          // so the plume reads as a tall, thinning column rather than a puff sitting on the fire.
+          smokeP.emit(sx, 3.15, sz, rnd(0.10, 0.26), rnd(1.0, 1.6), rnd(-0.07, 0.07), rnd(3.6, 5.6), rnd(0.7, 1.1));
+          smokeGlowP.emit(sx, 2.55, sz, rnd(0.08, 0.22), rnd(0.85, 1.35), rnd(-0.07, 0.07), rnd(2.6, 4.0), rnd(0.6, 1.0));
         }
         acc.e += 26 * ps * I * dt; while (acc.e >= 1) { acc.e--; emberP.emit(2.2 + rnd(-0.5, 0.5), 1.3, -7 + rnd(-0.4, 0.4), rnd(-0.5, 0.5), rnd(1.5, 3), rnd(-0.5, 0.5), rnd(1.2, 2.4), rnd(0.07, 0.13)); }
         if (spraying && active && efficiency() > 0.3) { acc.st += 22 * ps * dt; while (acc.st >= 1) { acc.st--; steamP.emit(2.2 + rnd(-0.5, 0.5), 1.1, -7 + rnd(-0.4, 0.4), rnd(-0.3, 0.3), rnd(1, 1.8), rnd(-0.3, 0.3), rnd(0.9, 1.6), rnd(0.6, 1)); } }
@@ -3859,9 +4145,10 @@
 
         updateAudio(I, t);
 
-        // Contextual prompts layered over the original guidance
+        // Contextual prompts layered over the original guidance. Each one names the single key
+        // that performs the action, so it can never be confused with another use of the same key.
         if (active && heat > 45) setPrompt('<b>Heat rising.</b> Step back to a safer distance (about 3–5 m).');
-        else if (active && !alarmOn && !pickedUp && cameraWorld.distanceTo(callPt) < 2.2) setPrompt('Press <span class="key">E</span> to activate the manual call point and raise the alarm.');
+        else if (active && !alarmOn && cameraWorld.distanceTo(callPt) < 2.2) setPrompt('Press <span class="key">Q</span> to raise the alarm at the manual call point.');
         else if (active && spraying && !isAimingAtFire()) setPrompt('Aim at the base of the fire for an effective discharge.');
       }
 
@@ -3875,7 +4162,7 @@
       }
 
       return {
-        update, efficiency, composer, depthPass,
+        update, efficiency, composer, depthPass, tryRaiseAlarm,
         resize() { if (composer) composer.setSize(innerWidth, innerHeight); resizeDepthRT(); updateParticleScale(); },
         heatEffect,
         get alarmOn() { return alarmOn; },
@@ -3898,13 +4185,14 @@
         // use the camera's real position instead of the previous frame's.
         camera.getWorldPosition(cameraWorld);
         camera.getWorldDirection(cameraDir);
-        updateExtinguisher();
+        updateExtinguisher(dt);
         updateSpray(dt, t);
         updateGuidance();
       }
       // Ambient motion keeps running while paused, so the scene still reads as a live site even
       // though every score-relevant interaction is frozen.
       animateEnvironment(t);
+      updatePinAnimation(dt);
       enhance.update(dt, t);
       if (csm) csm.update();
       // Soft particles fade against the scene depth, so the desktop tier renders a depth prepass
