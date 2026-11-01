@@ -2653,7 +2653,7 @@
 
         // Palm: wrist at the local origin, knuckles at +Y, thumb-side heavy so the silhouette is
         // asymmetric the way a real glove is.
-        const palm = viewPart(new THREE.Mesh(new THREE.RoundedBoxGeometry(0.086, 0.100, 0.033, 3, 0.013), gloveMat));
+        const palm = viewPart(new THREE.Mesh(new RoundedBoxGeometry(0.086, 0.100, 0.033, 3, 0.013), gloveMat));
         palm.position.y = 0.050;
         hand.add(palm);
         const thenar = viewPart(new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), gloveMat));
