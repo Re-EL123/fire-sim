@@ -476,7 +476,10 @@
       modelTex: 'https://dl.polyhaven.org/file/ph-assets/Models/jpg/',
       textures: 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/',
       hdri: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/textures/equirectangular/',
-      samples: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/models/gltf/'
+      samples: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/models/gltf/',
+      // Scanned, anatomically proportioned hands on the XR-standard 25-joint skeleton, published by
+      // the WebXR input profiles project. Used as the desktop player's view model.
+      hands: 'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/'
     };
 
     const dracoLoader = new DRACOLoader();
@@ -2534,6 +2537,9 @@
       }
       const crewPromise = workerGltf(CREW_URL);
       const crewGltf = i => crewPromise.then(g => g || workerGltf(CREW_FALLBACKS[i]));
+      // The evacuation run cycle is played slightly fast so the feet keep up with the 2.3 m/s the
+      // crew cover on the way to the assembly point.
+      const RUN_RATE = 1.25;
 
       // One PPE kit shared by the whole crew, so the workers read as one gang: fluorescent
       // hi-vis vest with retro-reflective banding, industrial-yellow shell helmet, leather mitten
@@ -2627,9 +2633,124 @@
       const gloveMat = ppe.glove;
       const viewPart = m => { m.castShadow = false; m.receiveShadow = false; m.frustumCulled = false; return m; };
 
-      // An anatomically proportioned glove rather than a stand-in: a knuckle-arched palm with a
-      // thenar pad, four fingers of three hinged phalanges, and an opposed two-joint thumb. Every
-      // joint is its own pivot, so the hand can rest loose and then close onto a real grip.
+      // The real thing: one of the WebXR input profile's scanned hands, an anatomically proportioned
+      // mesh on the standard 25-joint skeleton (a wrist, four fingers of metacarpal plus three
+      // phalanges and a tip, and an opposed thumb). It is re-surfaced in the same leather glove the
+      // gang wears so the player and the crew read as one team, and each knuckle is hinged about an
+      // axis measured off the asset itself - the published left and right hands are mirrored, so a
+      // shared Euler angle would bend one of them backwards.
+      const HAND_REST = 0.14;   // curl already present in a hanging hand
+
+      function buildHandFromRig(scene, side) {
+        const root = scene;
+        root.updateWorldMatrix(true, true);
+        const joints = new Map();
+        root.traverse(o => { if (o.isBone) joints.set(o.name.toLowerCase(), o); });
+        // The published rig ships all twenty-five joints as flat siblings under Armature, so a
+        // knuckle's rotation stops at that knuckle and the phalanges below it never follow: a
+        // finger physically cannot curl. Chain the segments together first. attach() recomputes
+        // each joint's local transform from its old world matrix, so every world matrix - and
+        // therefore the skinned bind pose and the inverse bind matrices - is left untouched.
+        const link = (parent, child) => {
+          const p = joints.get(parent), c = joints.get(child);
+          if (p && c) p.attach(c);
+        };
+        ['index', 'middle', 'ring', 'pinky'].forEach(name => {
+          link(`${name}-finger-metacarpal`, `${name}-finger-phalanx-proximal`);
+          link(`${name}-finger-phalanx-proximal`, `${name}-finger-phalanx-intermediate`);
+          link(`${name}-finger-phalanx-intermediate`, `${name}-finger-phalanx-distal`);
+          link(`${name}-finger-phalanx-distal`, `${name}-finger-tip`);
+        });
+        link('thumb-metacarpal', 'thumb-phalanx-proximal');
+        link('thumb-phalanx-proximal', 'thumb-phalanx-distal');
+        link('thumb-phalanx-distal', 'thumb-tip');
+        root.updateWorldMatrix(true, true);
+        const pos = n => { const b = joints.get(n); return b ? b.getWorldPosition(new THREE.Vector3()) : null; };
+        const rot = n => { const b = joints.get(n); return b ? b.getWorldQuaternion(new THREE.Quaternion()) : null; };
+
+        const wrist = pos('wrist'), midMeta = pos('middle-finger-metacarpal');
+        const idxMeta = pos('index-finger-metacarpal'), pkyMeta = pos('pinky-finger-metacarpal');
+        if (!wrist || !midMeta || !idxMeta || !pkyMeta) return null;
+
+        // f runs down the fingers and s across the knuckles, so f x s is normal to one face of the
+        // hand. Which face is the palm is read off the rig rather than assumed: the fingertips curl
+        // towards the palm, so their average deviation from that normal gives the sign.
+        const f = midMeta.clone().sub(wrist).normalize();
+        const s = idxMeta.clone().sub(pkyMeta).normalize();
+        const face = new THREE.Vector3().crossVectors(f, s).normalize();
+        const FINGERS = ['index', 'middle', 'ring', 'pinky'];
+        let bend = 0;
+        FINGERS.forEach(name => {
+          const meta = pos(`${name}-finger-metacarpal`), tip = pos(`${name}-finger-tip`);
+          if (meta && tip) bend += tip.clone().sub(meta).normalize().dot(face);
+        });
+        const palm = face.clone().multiplyScalar(bend < 0 ? -1 : 1);
+        // A positive rotation about this hinge swings a finger towards the palm. Checked against
+        // both the published left and right assets by measuring where each fingertip lands: this
+        // direction folds all four fingers in, the opposite one throws them off the back of the hand.
+        const hingeF = new THREE.Vector3().crossVectors(f, palm).normalize();
+
+        // Each knuckle keeps the rotation it was authored with and gains a hinge about its own
+        // measured axis, re-expressed in that bone's local frame.
+        const hinges = [];
+        const hinge = (name, axis, max) => {
+          const b = joints.get(name);
+          if (!b) return;
+          hinges.push({ bone: b, bind: b.quaternion.clone(), axis: axis.clone().applyQuaternion(rot(name).invert()).normalize(), max });
+        };
+        FINGERS.forEach(name => {
+          hinge(`${name}-finger-phalanx-proximal`, hingeF, 1.30);
+          hinge(`${name}-finger-phalanx-intermediate`, hingeF, 1.55);
+          hinge(`${name}-finger-phalanx-distal`, hingeF, 0.80);
+        });
+        // The thumb folds across the palm rather than alongside the fingers, so it hinges about the
+        // normal of its own direction.
+        const tProx = pos('thumb-phalanx-proximal'), tTip = pos('thumb-tip');
+        const thumbAxis = tProx && tTip
+          ? new THREE.Vector3().crossVectors(tTip.clone().sub(tProx).normalize(), palm).normalize()
+          : hingeF;
+        hinge('thumb-metacarpal', thumbAxis, 0.30);
+        hinge('thumb-phalanx-proximal', thumbAxis, 0.60);
+        hinge('thumb-phalanx-distal', thumbAxis, 0.95);
+
+        // Re-frame the rig so the wrist sits on the group origin, the fingers run up +Y and the palm
+        // faces +Z. That is the frame the rest and hold poses below are written in, so one set of
+        // poses drives either hand.
+        const src = new THREE.Matrix4().makeBasis(palm, f, new THREE.Vector3().crossVectors(palm, f));
+        const dst = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(-1, 0, 0));
+        const frame = new THREE.Matrix4().multiplyMatrices(dst, src.invert());
+        root.applyMatrix4(new THREE.Matrix4().multiplyMatrices(frame, new THREE.Matrix4().makeTranslation(-wrist.x, -wrist.y, -wrist.z)));
+
+        root.traverse(o => {
+          if (!o.isMesh) return;
+          o.material = gloveMat;
+          o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
+        });
+
+        const q = new THREE.Quaternion();
+        function setCurl(k) {
+          const c = HAND_REST + (1 - HAND_REST) * THREE.MathUtils.clamp(k, 0, 1);
+          hinges.forEach(h => h.bone.quaternion.copy(h.bind).multiply(q.setFromAxisAngle(h.axis, h.max * c)));
+        }
+        setCurl(0);
+        const hand = new THREE.Group();
+        hand.add(root);
+        // Dropped nose-down off the wrist, so the player looks down at the back of the glove while
+        // the fingers wrap forward and away from the eye.
+        hand.rotation.x = -1.25;
+        return { group: hand, setCurl };
+      }
+
+      const handSource = new Map();
+      function handGltf(side) {
+        const url = `${ASSET_CDN.hands}${side > 0 ? 'right' : 'left'}.glb`;
+        if (!handSource.has(url)) handSource.set(url, new Promise(res => gltfLoader.load(url, res, undefined, () => res(null))));
+        return handSource.get(url);
+      }
+
+      // What the arm carries until the scanned hand has streamed in, and for good if it never does:
+      // a knuckle-arched palm with a thenar pad, four fingers of three hinged phalanges and an
+      // opposed two-joint thumb, every joint its own pivot.
       const digitCache = new Map();
       const digitGeo = (r, len) => {
         const key = `${r.toFixed(4)}:${len.toFixed(4)}`;
@@ -2648,7 +2769,7 @@
       const THUMB_CURL = [0.72, 1.05];
       const REST_BEND = 0.34;                   // curl already present in an idle hand
 
-      function buildHand(side) {
+      function buildStandInHand(side) {
         const hand = new THREE.Group();
 
         // Palm: wrist at the local origin, knuckles at +Y, thumb-side heavy so the silhouette is
@@ -2721,8 +2842,21 @@
 
       function buildArm(side) {
         const arm = new THREE.Group();
-        const hand = buildHand(side);
-        arm.add(hand.group);
+        const hand = new THREE.Group();
+        arm.add(hand);
+        const standIn = buildStandInHand(side);
+        hand.add(standIn.group);
+        // The arm opens with the modelled stand-in and swaps to the scanned hand the moment it
+        // arrives. It streams through the same loader and manager the boot gate already watches, so
+        // the swap normally happens behind the boot screen.
+        const slot = { hand: standIn };
+        handGltf(side).then(gltf => {
+          const rig = gltf ? buildHandFromRig(skeletonClone(gltf.scene), side) : null;
+          if (!rig) return;
+          hand.remove(standIn.group);
+          hand.add(rig.group);
+          slot.hand = rig;
+        });
         // Forearm runs back and down out of frame, so the sleeve enters from the bottom edge.
         const forearm = new THREE.Group();
         forearm.position.set(0, -0.012, 0.028);
@@ -2741,7 +2875,7 @@
         cuff.position.y = -0.006;
         cuff.scale.set(0.94, 1, 0.68);
         forearm.add(cuff);
-        return { group: arm, setCurl: hand.setCurl };
+        return { group: arm, setCurl: k => slot.hand.setCurl(k) };
       }
       const playerRig = new THREE.Group();
       playerRig.name = 'player-viewmodel';
@@ -2803,6 +2937,7 @@
         const scratch = new THREE.Vector3();
         const anchorBones = {
           hips: ['hips', 'pelvis'],
+          spine: ['spine_01', 'spine_02', 'spine_03', 'spine1', 'spine2', 'spine'],
           head: ['head'],
           leftHand: ['lefthand', 'hand_l'],
           rightHand: ['righthand', 'hand_r'],
@@ -2812,17 +2947,28 @@
         const anchors = {};
         Object.keys(anchorBones).forEach(key => {
           const b = bone(anchorBones[key]);
-          anchors[key] = b ? { p: toG(b.getWorldPosition(scratch.set(0, 0, 0))), q: boneQuat(b) } : null;
+          anchors[key] = b ? { bone: b, p: toG(b.getWorldPosition(scratch.set(0, 0, 0))), q: boneQuat(b) } : null;
         });
+
+        // Every part rides the joint it belongs to rather than the worker group. Pinned to the
+        // group the kit stood still while the body moved through its clips, so a walking worker
+        // left his helmet hanging in the air and his gloves behind; attached to the bones the kit
+        // is welded to the body for every frame of every clip.
+        const attachTo = (a, obj) => {
+          g.add(obj);
+          g.updateMatrixWorld(true);
+          if (a && a.bone) a.bone.attach(obj);
+          return obj;
+        };
 
         const helmet = buildHelmet();
         helmet.position.set(anchors.head ? anchors.head.p.x : 0, 1.68, anchors.head ? anchors.head.p.z : 0);
-        g.add(helmet);
+        attachTo(anchors.head, helmet);
 
         const vest = buildVest();
-        const torso = anchors.hips || anchors.head;
+        const torso = anchors.spine || anchors.hips || anchors.head;
         vest.position.set(torso ? torso.p.x : 0, 1.24, torso ? torso.p.z : 0);
-        g.add(vest);
+        attachTo(torso, vest);
 
         [['leftHand', -0.03], ['rightHand', -0.03]].forEach(([key, lift]) => {
           const a = anchors[key];
@@ -2830,14 +2976,14 @@
           const glove = ppePart(gloveGeo, ppe.glove);
           glove.position.copy(a.p).add(new THREE.Vector3(0, lift, 0).applyQuaternion(a.q));
           glove.quaternion.copy(a.q);
-          g.add(glove);
+          attachTo(a, glove);
         });
         [['leftFoot'], ['rightFoot']].forEach(([key]) => {
           const a = anchors[key];
           if (!a) return;
           const band = ppePart(bootBandGeo, ppe.band);
           band.position.copy(a.p); band.quaternion.copy(a.q);
-          g.add(band);
+          attachTo(a, band);
         });
       }
 
@@ -2883,6 +3029,25 @@
             o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
           });
           dressCrewUniform(model);
+
+          // The clips are named per gait, so the fastest one is driven when the crew evacuates and
+          // the relaxed one when they are patrolling. Each is a closed cycle with no root motion,
+          // so they crossfade against each other without the character sliding or snapping.
+          const clips = gltf.animations || [];
+          const find = names => clips.find(c => names.some(n => c.name.toLowerCase().includes(n)));
+          w.mixer = new THREE.AnimationMixer(model);
+          const walkClip = find(['walk_relaxed', 'walk_']) || find(['walk']) || clips[0];
+          const runClip = find(['run']) || find(['jog']) || walkClip;
+          const idleClip = find(['idle', 'standing', 'breathing', 'stand', 'agree', 'sneak']) || clips[0];
+          if (walkClip) { w.walk = w.mixer.clipAction(walkClip); w.walk.play(); w.walk.weight = 0; }
+          if (runClip && runClip !== walkClip) { w.run = w.mixer.clipAction(runClip); w.run.play(); w.run.weight = 0; w.run.timeScale = RUN_RATE; }
+          if (idleClip) { w.idle = w.mixer.clipAction(idleClip); w.idle.play(); w.idle.weight = 1; }
+          // Step the idle pose to t = 0 before anything is fitted to the rig: the PPE is anchored to
+          // the joints, and the bind pose the file ships in is not quite the pose the clips start
+          // from, so measuring against it would seat the helmet and vest slightly off the body.
+          w.mixer.update(0);
+          model.updateMatrixWorld(true);
+
           const bb = new THREE.Box3().setFromObject(model);
           const h = bb.max.y - bb.min.y;
           const normalised = h > 0.2;
@@ -2892,15 +3057,6 @@
           // The PPE is only metric once the rig has been normalised, so a model that reports no
           // usable bounds is left undressed rather than wearing a badly-scaled kit.
           if (normalised) dressWorker(g, model);
-          const clips = gltf.animations || [];
-          const find = names => clips.find(c => names.some(n => c.name.toLowerCase().includes(n)));
-          w.mixer = new THREE.AnimationMixer(model);
-          const walkClip = find(['walk']) || clips[0];
-          const runClip = find(['run', 'jog']) || walkClip;
-          const idleClip = find(['idle', 'breathing', 'stand', 'agree', 'sneak']) || clips[0];
-          if (walkClip) { w.walk = w.mixer.clipAction(walkClip); w.walk.play(); w.walk.weight = 0; }
-          if (runClip && runClip !== walkClip) { w.run = w.mixer.clipAction(runClip); w.run.play(); w.run.weight = 0; }
-          if (idleClip) { w.idle = w.mixer.clipAction(idleClip); w.idle.play(); w.idle.weight = 1; }
         });
         return w;
       });
@@ -3669,11 +3825,21 @@
           // Idle <-> walk <-> run is a weight crossfade on always-playing actions.
           w.blend += ((w.moving ? 1 : 0) - w.blend) * Math.min(1, dt * 6);
           w.runAmt += ((w.running ? 1 : 0) - w.runAmt) * Math.min(1, dt * 5);
+          // The moment the sprint starts, drop the run clip onto whatever point of the stride the
+          // walk had reached. Left to run free the two cycles crossfade from arbitrary phases and
+          // the feet visibly skip; aligned, the legs carry straight through the change of gait.
+          if (w.running && !w.wasRunning && w.run && w.walk) {
+            const phase = ((w.walk.time / w.walk.getClip().duration) % 1 + 1) % 1;
+            w.run.time = phase * w.run.getClip().duration;
+          }
+          w.wasRunning = w.running;
           const runW = w.run ? w.blend * w.runAmt : 0;
           if (w.idle) w.idle.weight = 1 - w.blend;
           if (w.walk) w.walk.weight = w.blend - runW;
           if (w.run) w.run.weight = runW;
-          w.mixer.update(dt * (1 + w.runAmt * 0.45));
+          // A fixed step: gait speed is carried by each action's own timeScale, so nothing rescales
+          // the blend mid-stride and the two clips cannot drift apart.
+          w.mixer.update(dt);
         });
 
         // Camera and held-equipment realism: head bob, discharge shake, sway/recoil.
